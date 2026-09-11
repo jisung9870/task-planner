@@ -36,6 +36,8 @@ func (m *Model) View() string {
 	var b strings.Builder
 	b.WriteString(m.header())
 	b.WriteString("\n")
+	b.WriteString(m.statsLine())
+	b.WriteString("\n")
 	b.WriteString(m.tabs())
 	b.WriteString("\n")
 	b.WriteString(styRule.Render(strings.Repeat("─", m.innerWidth())))
@@ -75,7 +77,7 @@ func (m *Model) bodyHeight() int {
 	if h <= 0 {
 		h = 24
 	}
-	chrome := 3 + 3 // header/tabs/rule + rule/footer help line
+	chrome := 4 + 3 // header/stats/tabs/rule + rule/footer help line
 	if m.status != "" || m.errMsg != "" || m.mode == modeCapture || m.mode == modeBlock || m.mode == modeSearch {
 		chrome++
 	}
@@ -138,13 +140,39 @@ func (m *Model) tabs() string {
 	if len(suffix) > 0 {
 		line += "   " + styMuted.Render(strings.Join(suffix, "  "))
 	}
-	if wip := m.wipNote(); wip != "" {
-		line += "   " + wip
-	}
 	return line
 }
 
-// wipNote surfaces the in-progress count next to the tabs.
+// statsLine is the morning briefing: what is due, what slipped, what is in
+// flight, what has been stuck. Zero-valued signals are omitted - a row of
+// zeros is noise, and the point is that anything printed here needs a look.
+func (m *Model) statsLine() string {
+	sum := m.svc.Summarize()
+	var parts []string
+	if sum.DueToday > 0 {
+		parts = append(parts, styBlocked.Render(fmt.Sprintf("오늘마감 %d", sum.DueToday)))
+	}
+	if sum.Overdue > 0 {
+		parts = append(parts, styDanger.Render(fmt.Sprintf("마감초과 %d", sum.Overdue)))
+	}
+	parts = append(parts, m.wipNote())
+	if sum.Blocked > 0 {
+		label := fmt.Sprintf("보류 %d", sum.Blocked)
+		if sum.BlockedMaxDay > 0 {
+			label += fmt.Sprintf(" (최장 %d일)", sum.BlockedMaxDay)
+		}
+		if sum.BlockedMaxDay >= 7 {
+			parts = append(parts, styDanger.Render(label))
+		} else {
+			parts = append(parts, styBlocked.Render(label))
+		}
+	}
+	if sum.Carried > 0 {
+		parts = append(parts, styMuted.Render(fmt.Sprintf("이월 %d", sum.Carried)))
+	}
+	return " " + strings.Join(parts, styMuted.Render("  ·  "))
+}
+
 func (m *Model) wipNote() string {
 	w := m.svc.WIP()
 	if w.Limit <= 0 {
