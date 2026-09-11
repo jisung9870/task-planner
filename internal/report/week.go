@@ -77,7 +77,7 @@ func Week(in WeekInput) string {
 	section(&b, "보류", blocked, func(t *domain.Task) string {
 		reason := t.BlockedReason
 		if reason == "" && len(t.BlockedBy) > 0 {
-			reason = "선행 " + strings.Join(t.BlockedBy, ", ")
+			reason = "선행 " + strings.Join(domain.ShortRefs(t.BlockedBy), ", ")
 		}
 		if d := t.BlockedDays(in.Today); d > 0 {
 			return fmt.Sprintf("%s · %d일 경과", reason, d)

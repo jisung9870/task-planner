@@ -23,6 +23,7 @@ tp today                             # 오늘 할 일
 tp week                              # 이번 주
 tp start 1 / tp done 1               # 상태 전이 (#1 또는 제목 일부로 지정)
 tp block 1 "인프라팀 회신 대기"        # 보류 - 사유 필수
+tp block 2 --by 1                     # 선행 태스크로 보류 (완료 시 자동 해제)
 tp projects                          # 프로젝트별 현황
 tp list status:doing project:infra   # 질의
 tp list 'due<7d' -status:done

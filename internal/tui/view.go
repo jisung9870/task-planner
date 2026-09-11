@@ -164,6 +164,9 @@ func (m *Model) renderTaskRow(i int, t *domain.Task, today domain.Date) string {
 	if t.Status == domain.StatusBlocked {
 		line += "  " + styBlocked.Render("← "+m.blockNote(t, today))
 	}
+	if n := len(m.svc.Blocking(t.ID)); n > 0 && t.IsOpen() {
+		line += "  " + styMuted.Render(fmt.Sprintf("→%d대기", n))
+	}
 
 	switch t.Status {
 	case domain.StatusDoing:
@@ -177,7 +180,7 @@ func (m *Model) renderTaskRow(i int, t *domain.Task, today domain.Date) string {
 func (m *Model) blockNote(t *domain.Task, today domain.Date) string {
 	reason := t.BlockedReason
 	if reason == "" && len(t.BlockedBy) > 0 {
-		reason = "선행 " + strings.Join(t.BlockedBy, ",")
+		reason = "선행 " + strings.Join(domain.ShortRefs(t.BlockedBy), ", ")
 	}
 	if d := t.BlockedDays(today); d > 0 {
 		reason = fmt.Sprintf("%s (%d일 경과)", reason, d)
@@ -230,6 +233,21 @@ func (m *Model) detailPane() string {
 		b.WriteString("\n")
 		for _, l := range strings.Split(note, "\n") {
 			b.WriteString("  " + l + "\n")
+		}
+	}
+	if known, missing := m.svc.Blockers(full); len(known)+len(missing) > 0 {
+		b.WriteString("\n  " + styGroup.Render("선행") + "\n")
+		for _, d := range known {
+			b.WriteString("  " + styMuted.Render(fmt.Sprintf("%s %s  %s", d.Status.Glyph(), d.ShortID(), d.Title)) + "\n")
+		}
+		for _, id := range missing {
+			b.WriteString("  " + styDanger.Render("? "+id+"  (인덱스에 없음)") + "\n")
+		}
+	}
+	if blocking := m.svc.Blocking(full.ID); len(blocking) > 0 {
+		b.WriteString("\n  " + styGroup.Render("후행") + "\n")
+		for _, d := range blocking {
+			b.WriteString("  " + styMuted.Render(fmt.Sprintf("%s %s  %s", d.Status.Glyph(), d.ShortID(), d.Title)) + "\n")
 		}
 	}
 	if logs := full.LogLines(); len(logs) > 0 {

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -203,7 +204,9 @@ func newShowCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "%s\n\n%s", t.Path, raw)
+				out := cmd.OutOrStdout()
+				fmt.Fprintf(out, "%s\n\n%s", t.Path, raw)
+				printDeps(out, svc, t)
 				return nil
 			})
 		},
@@ -262,6 +265,27 @@ func newStatusCmds() []*cobra.Command {
 	return append(cmds, block)
 }
 
+// printDeps renders both directions of the dependency edge. Seeing what a task
+// blocks is what turns a finished item into a prompt to move the next one.
+func printDeps(w io.Writer, svc *service.Service, t *domain.Task) {
+	known, missing := svc.Blockers(t)
+	if len(known)+len(missing) > 0 {
+		fmt.Fprintln(w, "\n선행 (이 태스크가 기다리는 것)")
+		for _, d := range known {
+			fmt.Fprintf(w, "  %s %s  %s\n", d.Status.Glyph(), d.ShortID(), d.Title)
+		}
+		for _, id := range missing {
+			fmt.Fprintf(w, "  ? %s  (인덱스에 없음)\n", id)
+		}
+	}
+	if blocking := svc.Blocking(t.ID); len(blocking) > 0 {
+		fmt.Fprintln(w, "\n후행 (이 태스크를 기다리는 것)")
+		for _, d := range blocking {
+			fmt.Fprintf(w, "  %s %s  %s\n", d.Status.Glyph(), d.ShortID(), d.Title)
+		}
+	}
+}
+
 func newProjectsCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "projects",
@@ -315,7 +339,13 @@ func newIndexCmd() *cobra.Command {
 func printResult(cmd *cobra.Command, res *service.Result) {
 	fmt.Fprintf(cmd.OutOrStdout(), "%s %s  %s → %s\n",
 		res.Task.Status.Glyph(), res.Task.ShortID(), res.Task.Title, res.Task.Status.Label())
+	for _, u := range res.Unblocked {
+		fmt.Fprintf(cmd.OutOrStdout(), "  ↑ %s %s  보류 해제\n", u.Task.ShortID(), u.Task.Title)
+	}
 	for _, w := range res.Warnings {
+		if strings.Contains(w, "보류 해제") {
+			continue // already printed above
+		}
 		fmt.Fprintln(cmd.ErrOrStderr(), "  주의: "+w)
 	}
 }

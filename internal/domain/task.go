@@ -181,9 +181,24 @@ func NewID(d Date, seq int) string {
 }
 
 // ShortID is the display form used in narrow list columns.
-func (t *Task) ShortID() string {
-	if i := strings.LastIndexByte(t.ID, '-'); i >= 0 && len(t.ID) > i+1 {
-		return "#" + strings.TrimLeft(t.ID[i+1:], "0")
+func (t *Task) ShortID() string { return ShortRef(t.ID) }
+
+// ShortRef renders any task id as "#12". Blocker lists store canonical ids but
+// showing them raw makes a one-line row unreadable.
+func ShortRef(id string) string {
+	if i := strings.LastIndexByte(id, '-'); i >= 0 && len(id) > i+1 {
+		if short := strings.TrimLeft(id[i+1:], "0"); short != "" {
+			return "#" + short
+		}
 	}
-	return t.ID
+	return id
+}
+
+// ShortRefs renders a list of ids.
+func ShortRefs(ids []string) []string {
+	out := make([]string, len(ids))
+	for i, id := range ids {
+		out[i] = ShortRef(id)
+	}
+	return out
 }

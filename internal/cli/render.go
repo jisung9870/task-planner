@@ -69,7 +69,7 @@ func taskLine(t *domain.Task, today domain.Date, dueSoon int) string {
 	if t.Status == domain.StatusBlocked {
 		reason := t.BlockedReason
 		if reason == "" && len(t.BlockedBy) > 0 {
-			reason = "선행: " + strings.Join(t.BlockedBy, ",")
+			reason = "선행 " + strings.Join(domain.ShortRefs(t.BlockedBy), ", ")
 		}
 		if d := t.BlockedDays(today); d > 0 {
 			reason = fmt.Sprintf("%s (%d일 경과)", reason, d)

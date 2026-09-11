@@ -82,6 +82,8 @@ func (s *Service) nextSeq(d domain.Date) int {
 type Result struct {
 	Task     *domain.Task
 	Warnings []string
+	// Unblocked lists tasks released by this change, if any.
+	Unblocked []Unblocked
 }
 
 // SetStatus moves a task between states, writing the change and its log line.
@@ -99,7 +101,18 @@ func (s *Service) SetStatus(ref string, to domain.Status, block *domain.BlockInf
 	}
 	s.recordChange(fmt.Sprintf("%s %s", t.ShortID(), to.Label()),
 		fmt.Sprintf("%s %s: %s → %s", t.ID, t.Title, from, to))
-	return &Result{Task: t}, nil
+
+	res := &Result{Task: t}
+	released, err := s.releaseDependents(t)
+	if err != nil {
+		return res, err
+	}
+	res.Unblocked = released
+	for _, u := range released {
+		res.Warnings = append(res.Warnings,
+			fmt.Sprintf("%s 보류 해제됨 — %s", u.Task.ShortID(), u.Task.Title))
+	}
+	return res, nil
 }
 
 // Start, Done, Cancel and Reopen are the shorthands the CLI and TUI bind to.
@@ -126,7 +139,20 @@ func (s *Service) Block(ref, reason string, by []string) (*Result, error) {
 	if reason == "" && len(by) == 0 {
 		return nil, domain.ErrBlockedNeedsReason
 	}
-	return s.SetStatus(ref, domain.StatusBlocked, &domain.BlockInfo{Reason: reason, By: by})
+	owner, err := s.Resolve(ref)
+	if err != nil {
+		return nil, err
+	}
+	ids, err := s.resolveRefs(owner.ID, by)
+	if err != nil {
+		return nil, err
+	}
+	// Blocking on work that is already finished is almost always a mistake in
+	// the reference, so say so instead of creating a hold nothing will release.
+	if len(ids) > 0 && reason == "" && s.allBlockersDone(ids) {
+		return nil, fmt.Errorf("선행 태스크가 이미 완료 상태임: %s", strings.Join(ids, ", "))
+	}
+	return s.SetStatus(owner.ID, domain.StatusBlocked, &domain.BlockInfo{Reason: reason, By: ids})
 }
 
 // EditInput carries partial updates; nil pointers mean "leave alone".
