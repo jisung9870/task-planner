@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"task-planner/internal/domain"
+	"task-planner/internal/editor"
 	"task-planner/internal/query"
 	"task-planner/internal/service"
 )
@@ -16,6 +17,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		return m, nil
+	case editorDoneMsg:
+		m.handleEditorDone(msg)
 		return m, nil
 	case tea.KeyMsg:
 		switch m.mode {
@@ -105,8 +109,55 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.startPrompt(modeBlock, "보류 사유: ", t.BlockedReason)
 			return m, textinput.Blink
 		}
+	case "e":
+		return m, m.openEditor()
 	}
 	return m, nil
+}
+
+// editorDoneMsg carries the result of an external edit back into the loop.
+type editorDoneMsg struct {
+	id  string
+	err error
+}
+
+// openEditor suspends the TUI, runs $EDITOR on the selected file, and re-reads
+// it on return. Markdown is the source of truth, so editing it by hand is a
+// supported path rather than a workaround.
+func (m *Model) openEditor() tea.Cmd {
+	t := m.current()
+	if t == nil {
+		return nil
+	}
+	cmd, err := editor.Command(m.svc.Cfg, t.Path)
+	if err != nil {
+		m.setErr(err)
+		return nil
+	}
+	id := t.ID
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		return editorDoneMsg{id: id, err: err}
+	})
+}
+
+// handleEditorDone re-indexes after an external edit and surfaces a parse error
+// at the moment it was introduced.
+func (m *Model) handleEditorDone(msg editorDoneMsg) {
+	if msg.err != nil {
+		m.setErr(msg.err)
+		return
+	}
+	if _, err := m.svc.Sync(); err != nil {
+		m.setErr(err)
+		return
+	}
+	m.reload()
+	m.selectID(msg.id)
+	if t := m.current(); t != nil {
+		m.setStatus("편집 반영 %s  %s", t.ShortID(), t.Title)
+	} else {
+		m.setStatus("편집 반영됨")
+	}
 }
 
 func (m *Model) switchTab(t tab) {

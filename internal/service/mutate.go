@@ -208,3 +208,14 @@ func (s *Service) Delete(ref string) error {
 
 // SaveTask persists a task the caller already holds (used after external edits).
 func (s *Service) SaveTask(t *domain.Task) error { return s.save(t) }
+
+// Refresh re-indexes a task that was changed outside the tool (external editor,
+// another terminal). It validates before indexing so a broken hand-edit is
+// reported at the point of editing rather than at the next query.
+func (s *Service) Refresh(t *domain.Task) error {
+	if err := t.Validate(); err != nil {
+		return err
+	}
+	s.idx.Put(t)
+	return s.idx.Flush()
+}
