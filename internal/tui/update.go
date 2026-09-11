@@ -10,6 +10,7 @@ import (
 	"task-planner/internal/editor"
 	"task-planner/internal/query"
 	"task-planner/internal/service"
+	"task-planner/internal/watch"
 )
 
 // Update is the single event entry point.
@@ -21,6 +22,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case editorDoneMsg:
 		m.handleEditorDone(msg)
 		return m, nil
+	case vaultChangedMsg:
+		m.handleVaultChanged()
+		return m, waitForChange(m.watcher)
 	case tea.KeyMsg:
 		switch m.mode {
 		case modeCapture, modeBlock, modeSearch:
@@ -113,6 +117,42 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.openEditor()
 	}
 	return m, nil
+}
+
+// vaultChangedMsg means a file under tasks/ changed outside this process.
+type vaultChangedMsg struct{}
+
+// waitForChange blocks on the watcher until the next settled burst. It is
+// re-issued after every delivery, which is how bubbletea models a stream.
+func waitForChange(w *watch.Watcher) tea.Cmd {
+	if w == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		<-w.Events()
+		return vaultChangedMsg{}
+	}
+}
+
+// handleVaultChanged re-syncs after an external edit, keeping the cursor on the
+// task the user was looking at.
+func (m *Model) handleVaultChanged() {
+	id := ""
+	if t := m.current(); t != nil {
+		id = t.ID
+	}
+	before := len(m.svc.All())
+	if _, err := m.svc.Sync(); err != nil {
+		m.setErr(err)
+		return
+	}
+	m.reload()
+	m.selectID(id)
+	// Only announce changes the user did not make here; own edits already
+	// produced their own status line.
+	if after := len(m.svc.All()); after != before {
+		m.setStatus("외부 변경 반영 — 태스크 %d건", after)
+	}
 }
 
 // editorDoneMsg carries the result of an external edit back into the loop.

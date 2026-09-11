@@ -4,11 +4,22 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"task-planner/internal/service"
+	"task-planner/internal/watch"
 )
 
 // Run starts the TUI against an open service.
+//
+// A failed watcher is not fatal: the TUI still works, the user just has to
+// press r after editing files elsewhere.
 func Run(svc *service.Service) error {
-	p := tea.NewProgram(New(svc), tea.WithAltScreen())
+	m := New(svc)
+	if w, err := watch.New(svc.Vault().TasksDir(), watch.DefaultDebounce); err != nil {
+		m.setStatus("파일 감시 비활성 (%v) — r 로 새로고침하세요", err)
+	} else {
+		m.SetWatcher(w)
+		defer w.Close()
+	}
+	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()
 	return err
 }

@@ -12,6 +12,7 @@ import (
 	"task-planner/internal/domain"
 	"task-planner/internal/query"
 	"task-planner/internal/service"
+	"task-planner/internal/watch"
 )
 
 type tab int
@@ -67,6 +68,9 @@ type Model struct {
 	status string
 	errMsg string
 	quit   bool
+
+	// watcher reports edits made outside this process.
+	watcher *watch.Watcher
 }
 
 // New builds the initial model.
@@ -89,7 +93,15 @@ func New(svc *service.Service) *Model {
 	return m
 }
 
-func (m *Model) Init() tea.Cmd { return textinput.Blink }
+func (m *Model) Init() tea.Cmd {
+	if m.watcher == nil {
+		return textinput.Blink
+	}
+	return tea.Batch(textinput.Blink, waitForChange(m.watcher))
+}
+
+// SetWatcher attaches an external-change source before the program starts.
+func (m *Model) SetWatcher(w *watch.Watcher) { m.watcher = w }
 
 // reload re-runs the current view's query. Cheap: it reads the in-memory index.
 func (m *Model) reload() {
