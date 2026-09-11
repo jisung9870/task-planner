@@ -1,0 +1,147 @@
+package query
+
+import (
+	"testing"
+	"time"
+
+	"task-planner/internal/domain"
+)
+
+var today = domain.NewDate(2026, time.September, 12) // Saturday, ISO week 37
+
+func task(id string, st domain.Status, sched, due string) *domain.Task {
+	t := &domain.Task{ID: id, Title: id, Status: st}
+	if sched != "" {
+		t.Scheduled, _ = domain.ParseDate(sched)
+	}
+	if due != "" {
+		t.Due, _ = domain.ParseDate(due)
+	}
+	return t
+}
+
+func ids(ts []*domain.Task) []string {
+	out := make([]string, len(ts))
+	for i, t := range ts {
+		out[i] = t.ID
+	}
+	return out
+}
+
+func has(ts []*domain.Task, id string) bool {
+	for _, t := range ts {
+		if t.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func TestTodayIncludesDoingScheduledAndDue(t *testing.T) {
+	all := []*domain.Task{
+		task("doing-unscheduled", domain.StatusDoing, "", ""),
+		task("scheduled-today", domain.StatusTodo, "2026-09-12", ""),
+		task("scheduled-past", domain.StatusTodo, "2026-09-10", ""),
+		task("due-today", domain.StatusTodo, "", "2026-09-12"),
+		task("scheduled-future", domain.StatusTodo, "2026-09-20", ""),
+		task("backlog", domain.StatusTodo, "", ""),
+	}
+	got := Today(all, today)
+	for _, want := range []string{"doing-unscheduled", "scheduled-today", "scheduled-past", "due-today"} {
+		if !has(got, want) {
+			t.Errorf("%s 가 Today 에 없음: %v", want, ids(got))
+		}
+	}
+	for _, no := range []string{"scheduled-future", "backlog"} {
+		if has(got, no) {
+			t.Errorf("%s 가 Today 에 잘못 포함됨: %v", no, ids(got))
+		}
+	}
+}
+
+// Separating scheduled from due is the reason the Today view is usable; a task
+// due later but scheduled for today must show up.
+func TestTodaySeparatesScheduledFromDue(t *testing.T) {
+	all := []*domain.Task{task("t", domain.StatusTodo, "2026-09-12", "2026-09-30")}
+	if got := Today(all, today); len(got) != 1 {
+		t.Fatalf("got %v", ids(got))
+	}
+}
+
+func TestTodayIncludesTasksCompletedToday(t *testing.T) {
+	done := task("done-today", domain.StatusDone, "", "")
+	done.Completed = today
+	older := task("done-earlier", domain.StatusDone, "", "")
+	older.Completed = today.AddDays(-1)
+	got := Today([]*domain.Task{done, older}, today)
+	if !has(got, "done-today") || has(got, "done-earlier") {
+		t.Fatalf("got %v", ids(got))
+	}
+}
+
+func TestWeekCoversISOWeekAndOverdue(t *testing.T) {
+	all := []*domain.Task{
+		task("in-week", domain.StatusTodo, "2026-09-09", ""),
+		task("week-edge-mon", domain.StatusTodo, "2026-09-07", ""),
+		task("week-edge-sun", domain.StatusTodo, "2026-09-13", ""),
+		task("next-week", domain.StatusTodo, "2026-09-14", ""),
+		task("overdue", domain.StatusTodo, "", "2026-08-30"),
+	}
+	got := Week(all, today)
+	for _, want := range []string{"in-week", "week-edge-mon", "week-edge-sun", "overdue"} {
+		if !has(got, want) {
+			t.Errorf("%s 가 Week 에 없음: %v", want, ids(got))
+		}
+	}
+	if has(got, "next-week") {
+		t.Errorf("다음 주 항목이 포함됨: %v", ids(got))
+	}
+}
+
+func TestWeekDaysBucketsUnassigned(t *testing.T) {
+	all := []*domain.Task{
+		task("mon", domain.StatusTodo, "2026-09-07", ""),
+		task("floating", domain.StatusDoing, "", ""),
+	}
+	buckets, days := WeekDays(all, today)
+	if len(days) != 7 || days[0].String() != "2026-09-07" {
+		t.Fatalf("days = %v", days)
+	}
+	if len(buckets[domain.NewDate(2026, time.September, 7)]) != 1 {
+		t.Fatalf("월요일 버킷 = %v", buckets)
+	}
+	if len(buckets[domain.Date{}]) != 1 {
+		t.Fatalf("미배정 버킷 = %v", buckets[domain.Date{}])
+	}
+}
+
+func TestProjectCountsOrdersByOpenWork(t *testing.T) {
+	mk := func(project string, st domain.Status) *domain.Task {
+		t := task(project+"-"+string(st), st, "", "")
+		t.Project = project
+		return t
+	}
+	all := []*domain.Task{
+		mk("infra", domain.StatusDoing), mk("infra", domain.StatusBlocked),
+		mk("log", domain.StatusTodo), mk("log", domain.StatusDone),
+	}
+	counts := ProjectCounts(all, today)
+	if counts[0].Slug != "infra" || counts[0].Open != 2 || counts[0].Blocked != 1 {
+		t.Fatalf("counts[0] = %+v", counts[0])
+	}
+	if counts[1].Slug != "log" || counts[1].Open != 1 || counts[1].Done != 1 {
+		t.Fatalf("counts[1] = %+v", counts[1])
+	}
+}
+
+func TestSortPutsDoingAndOverdueFirst(t *testing.T) {
+	all := []*domain.Task{
+		task("todo-later", domain.StatusTodo, "", "2026-09-30"),
+		task("todo-overdue", domain.StatusTodo, "", "2026-09-01"),
+		task("doing", domain.StatusDoing, "", ""),
+	}
+	domain.SortDefault(all, today)
+	if all[0].ID != "doing" || all[1].ID != "todo-overdue" {
+		t.Fatalf("order = %v", ids(all))
+	}
+}
