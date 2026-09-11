@@ -98,6 +98,8 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch {
 		case m.detail:
 			m.detail = false
+		case m.splitActive():
+			m.wideDetail = false
 		case m.search != "":
 			m.search, m.filter = "", nil
 			m.reload()
@@ -117,7 +119,11 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		m.detail = !m.detail
+		if m.wide() && m.tab != tabBoard {
+			m.wideDetail = !m.wideDetail
+		} else {
+			m.detail = !m.detail
+		}
 	case "r":
 		m.refresh(false)
 	case "R":

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"task-planner/internal/domain"
 	"task-planner/internal/query"
@@ -44,9 +45,12 @@ func (m *Model) View() string {
 	b.WriteString("\n")
 
 	avail := m.bodyHeight()
-	if m.detail {
-		// The detail pane borrows from the same budget so the footer never
-		// scrolls off; give it the smaller share.
+	switch {
+	case m.splitActive():
+		b.WriteString(m.splitBody(avail))
+	case m.detail && m.tab != tabBoard:
+		// Narrow terminal: the detail pane borrows from the same budget so
+		// the footer never scrolls off; give it the smaller share.
 		detailH := avail * 2 / 5
 		if detailH < 4 {
 			detailH = 4
@@ -60,7 +64,7 @@ func (m *Model) View() string {
 		b.WriteString(styRule.Render(strings.Repeat("─", m.innerWidth())))
 		b.WriteString("\n")
 		b.WriteString(clipLines(m.detailPane(), detailH))
-	} else {
+	default:
 		b.WriteString(m.list(avail))
 	}
 	b.WriteString("\n")
@@ -68,6 +72,45 @@ func (m *Model) View() string {
 	b.WriteString("\n")
 	b.WriteString(m.footer())
 	return b.String()
+}
+
+// wide reports whether the terminal can afford a side-by-side split.
+func (m *Model) wide() bool { return m.innerWidth() >= 100 }
+
+// splitActive: the right-hand detail pane renders on wide terminals for list
+// tabs whenever a task is selected. The board draws its own columns.
+func (m *Model) splitActive() bool {
+	return m.wide() && m.wideDetail && m.tab != tabBoard && m.current() != nil
+}
+
+// splitBody renders list and detail side by side, both clipped to the height
+// budget and to their column widths (ANSI-aware via lipgloss MaxWidth).
+func (m *Model) splitBody(avail int) string {
+	width := m.innerWidth()
+	listW := width * 11 / 20
+	detailW := width - listW - 3 // " │ " divider
+
+	// lipgloss Width() word-wraps long lines; a list row must truncate instead,
+	// so fit each line by hand with the ANSI-aware truncator.
+	left := fitBlock(m.list(avail), listW)
+	right := fitBlock(clipLines(m.detailPane(), avail), detailW)
+
+	divider := strings.TrimRight(strings.Repeat(styRule.Render("│")+"\n", avail), "\n")
+	return lipgloss.JoinHorizontal(lipgloss.Top, left, " ", divider, " ", right)
+}
+
+// fitBlock truncates and pads every line of a block to exactly w columns, so a
+// horizontal join produces a straight divider regardless of content.
+func fitBlock(block string, w int) string {
+	lines := strings.Split(block, "\n")
+	for i, l := range lines {
+		l = ansi.Truncate(l, w, "…")
+		if d := w - lipgloss.Width(l); d > 0 {
+			l += strings.Repeat(" ", d)
+		}
+		lines[i] = l
+	}
+	return strings.Join(lines, "\n")
 }
 
 // bodyHeight is the line budget left for the body once the fixed chrome
@@ -473,26 +516,12 @@ func (m *Model) boardFooter(today domain.Date) string {
 }
 
 // truncate cuts to a display width, appending an ellipsis when it had to cut.
+// ANSI-aware: styled input keeps its escape sequences intact.
 func truncate(s string, w int) string {
 	if w <= 0 {
 		return ""
 	}
-	if lipgloss.Width(s) <= w {
-		return s
-	}
-	const ellipsis = "…"
-	budget := w - lipgloss.Width(ellipsis)
-	if budget <= 0 {
-		return ellipsis
-	}
-	var b strings.Builder
-	for _, r := range s {
-		if lipgloss.Width(b.String()+string(r)) > budget {
-			break
-		}
-		b.WriteRune(r)
-	}
-	return strings.TrimRight(b.String(), " ") + ellipsis
+	return ansi.Truncate(s, w, "…")
 }
 
 func (m *Model) renderProjRow(i int, r row) string {

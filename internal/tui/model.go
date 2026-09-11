@@ -60,7 +60,11 @@ type Model struct {
 	mode   mode
 	rows   []row
 	cursor int
-	detail bool
+	// detail: bottom pane toggle for narrow terminals.
+	// wideDetail: right pane toggle for wide terminals - on by default, because
+	// the pane is the point of the split layout.
+	detail     bool
+	wideDetail bool
 
 	// listOffset is the first visible row of the list viewport. The list used
 	// to render every row, which scrolled the header off screen past ~15 tasks.
@@ -95,7 +99,7 @@ func New(svc *service.Service) *Model {
 	in := textinput.New()
 	in.Prompt = ""
 	in.CharLimit = 400
-	m := &Model{svc: svc, input: in}
+	m := &Model{svc: svc, input: in, wideDetail: true}
 	// Rolling over before the first render means the morning view is already
 	// correct instead of showing yesterday's dates.
 	if rep, err := svc.RolloverIfEnabled(); err != nil {

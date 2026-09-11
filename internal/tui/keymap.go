@@ -12,7 +12,8 @@ const helpFull = `키
   탭          1 Today   2 Week   3 Board   4 Projects   5 All
   추가        a  (한 줄 캡처 — 나머지 필드는 나중에)
   상태        space 순환   s 진행중   d 완료   b 보류   x 취소   u 대기중
-  상세        enter (다시 누르면 닫힘)
+  상세        넓은 화면: 우측 고정 패널 (enter 로 접기/펼치기)
+              좁은 화면: enter 로 하단 패널 토글
   편집        e  (외부 편집기 — 저장하고 나오면 자동 반영)
   필터        /  질의식 또는 자유 단어
               status:doing  project:infra  tag:ops  priority:P1
