@@ -68,6 +68,22 @@ func (s *Service) Add(in AddInput) (*domain.Task, error) {
 	return t, nil
 }
 
+// AddWithResult is Add plus the advisory the caller should surface (currently
+// only the WIP warning, which applies when a task is captured as 진행중).
+func (s *Service) AddWithResult(in AddInput) (*Result, error) {
+	t, err := s.Add(in)
+	if err != nil {
+		return nil, err
+	}
+	res := &Result{Task: t}
+	if t.Status == domain.StatusDoing {
+		if w := s.wipWarning(t.ID); w != "" {
+			res.Warnings = append(res.Warnings, w)
+		}
+	}
+	return res, nil
+}
+
 // nextSeq finds the next free per-day sequence number. Scanning the index is
 // fine at this scale and avoids a counter file that could drift from reality.
 func (s *Service) nextSeq(d domain.Date) int {
@@ -114,6 +130,11 @@ func (s *Service) SetStatus(ref string, to domain.Status, block *domain.BlockInf
 		fmt.Sprintf("%s %s: %s → %s", t.ID, t.Title, from, to))
 
 	res := &Result{Task: t}
+	if to == domain.StatusDoing {
+		if w := s.wipWarning(t.ID); w != "" {
+			res.Warnings = append(res.Warnings, w)
+		}
+	}
 	released, err := s.releaseDependents(t)
 	if err != nil {
 		return res, err

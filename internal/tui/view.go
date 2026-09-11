@@ -93,28 +93,26 @@ func (m *Model) tabs() string {
 	if m.projDrill {
 		suffix = append(suffix, "프로젝트:"+query.ProjectLabel(m.projSlug))
 	}
-	if wip := m.wipNote(); wip != "" {
-		suffix = append(suffix, wip)
-	}
 	if len(suffix) > 0 {
 		line += "   " + styMuted.Render(strings.Join(suffix, "  "))
+	}
+	if wip := m.wipNote(); wip != "" {
+		line += "   " + wip
 	}
 	return line
 }
 
-// wipNote surfaces the in-progress count next to the tabs; the limit itself is
-// enforced elsewhere.
+// wipNote surfaces the in-progress count next to the tabs.
 func (m *Model) wipNote() string {
-	doing := 0
-	for _, t := range m.svc.All() {
-		if t.Status == domain.StatusDoing {
-			doing++
-		}
+	w := m.svc.WIP()
+	if w.Limit <= 0 {
+		return fmt.Sprintf("WIP %d", w.Count)
 	}
-	if m.svc.Cfg.WIPLimit > 0 {
-		return fmt.Sprintf("WIP %d/%d", doing, m.svc.Cfg.WIPLimit)
+	label := fmt.Sprintf("WIP %d/%d", w.Count, w.Limit)
+	if w.Exceeded() {
+		return styDanger.Render(label + " ⚠")
 	}
-	return fmt.Sprintf("WIP %d", doing)
+	return label
 }
 
 func (m *Model) list() string {

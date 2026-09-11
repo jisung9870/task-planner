@@ -320,14 +320,18 @@ func (m *Model) capture(title string) {
 	if m.projDrill {
 		in.Project = m.projSlug
 	}
-	t, err := m.svc.Add(in)
+	res, err := m.svc.AddWithResult(in)
 	if err != nil {
 		m.setErr(err)
 		return
 	}
+	t := res.Task
 	m.reload()
 	m.selectID(t.ID)
 	m.setStatus("추가됨 %s  %s", t.ShortID(), t.Title)
+	for _, w := range res.Warnings {
+		m.status += "  · " + w
+	}
 }
 
 func (m *Model) applyCurrent(to domain.Status) {

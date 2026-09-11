@@ -72,11 +72,15 @@ func newAddCmd() *cobra.Command {
 				if start {
 					in.Status = domain.StatusDoing
 				}
-				t, err := svc.Add(in)
+				res, err := svc.AddWithResult(in)
 				if err != nil {
 					return err
 				}
+				t := res.Task
 				fmt.Fprintf(cmd.OutOrStdout(), "추가됨 %s  %s\n  %s\n", t.ShortID(), t.Title, t.Path)
+				for _, w := range res.Warnings {
+					fmt.Fprintln(cmd.ErrOrStderr(), "  주의: "+w)
+				}
 				return nil
 			})
 		},
