@@ -40,18 +40,60 @@ func (m *Model) View() string {
 	b.WriteString("\n")
 	b.WriteString(styRule.Render(strings.Repeat("─", m.innerWidth())))
 	b.WriteString("\n")
-	b.WriteString(m.list())
+
+	avail := m.bodyHeight()
 	if m.detail {
+		// The detail pane borrows from the same budget so the footer never
+		// scrolls off; give it the smaller share.
+		detailH := avail * 2 / 5
+		if detailH < 4 {
+			detailH = 4
+		}
+		listH := avail - detailH - 1 // -1 for the divider
+		if listH < 3 {
+			listH = 3
+		}
+		b.WriteString(m.list(listH))
 		b.WriteString("\n")
 		b.WriteString(styRule.Render(strings.Repeat("─", m.innerWidth())))
 		b.WriteString("\n")
-		b.WriteString(m.detailPane())
+		b.WriteString(clipLines(m.detailPane(), detailH))
+	} else {
+		b.WriteString(m.list(avail))
 	}
 	b.WriteString("\n")
 	b.WriteString(styRule.Render(strings.Repeat("─", m.innerWidth())))
 	b.WriteString("\n")
 	b.WriteString(m.footer())
 	return b.String()
+}
+
+// bodyHeight is the line budget left for the body once the fixed chrome
+// (header, tabs, rules, footer) is subtracted.
+func (m *Model) bodyHeight() int {
+	h := m.height
+	if h <= 0 {
+		h = 24
+	}
+	chrome := 3 + 3 // header/tabs/rule + rule/footer help line
+	if m.status != "" || m.errMsg != "" || m.mode == modeCapture || m.mode == modeBlock || m.mode == modeSearch {
+		chrome++
+	}
+	avail := h - chrome
+	if avail < 4 {
+		avail = 4
+	}
+	return avail
+}
+
+// clipLines truncates a multi-line block to max lines, marking the cut.
+func clipLines(s string, max int) string {
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	if len(lines) <= max {
+		return strings.Join(lines, "\n")
+	}
+	out := lines[:max-1]
+	return strings.Join(out, "\n") + "\n" + styMuted.Render(fmt.Sprintf("  … %d줄 더 (e 편집기로 열람)", len(lines)-max+1))
 }
 
 func (m *Model) innerWidth() int {
@@ -115,16 +157,24 @@ func (m *Model) wipNote() string {
 	return label
 }
 
-func (m *Model) list() string {
+func (m *Model) list(avail int) string {
 	if m.tab == tabBoard {
-		return m.board()
+		return m.board(avail)
 	}
 	if len(m.rows) == 0 {
-		return styMuted.Render("  (표시할 항목 없음 — a 로 추가)") + "\n"
+		return styMuted.Render("  (표시할 항목 없음 — a 로 추가)")
 	}
 	today := m.svc.Today()
+
+	m.ensureCursorVisible(avail)
+	start, end, above, below := m.viewport(avail)
+
 	var b strings.Builder
-	for i, r := range m.rows {
+	if above > 0 {
+		b.WriteString(styMuted.Render(fmt.Sprintf("  ↑ %d줄", above)) + "\n")
+	}
+	for i := start; i < end; i++ {
+		r := m.rows[i]
 		switch {
 		case r.proj != nil:
 			b.WriteString(m.renderProjRow(i, r))
@@ -135,7 +185,62 @@ func (m *Model) list() string {
 		}
 		b.WriteString("\n")
 	}
-	return b.String()
+	if below > 0 {
+		b.WriteString(styMuted.Render(fmt.Sprintf("  ↓ %d줄", below)) + "\n")
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// viewport resolves the visible slice for the current offset: which rows fit,
+// and how many are hidden on each side (each hidden side costs one indicator
+// line from the budget).
+func (m *Model) viewport(avail int) (start, end, above, below int) {
+	total := len(m.rows)
+	start = m.listOffset
+	if start > total {
+		start = total
+	}
+	vis := avail
+	if start > 0 {
+		vis--
+	}
+	if start+vis < total {
+		vis--
+	}
+	if vis < 1 {
+		vis = 1
+	}
+	end = start + vis
+	if end > total {
+		end = total
+	}
+	return start, end, start, total - end
+}
+
+// ensureCursorVisible slides the offset so the cursor stays inside the
+// viewport. Run twice because indicator lines change the capacity, which can
+// change whether an indicator is needed.
+func (m *Model) ensureCursorVisible(avail int) {
+	if m.listOffset > len(m.rows) {
+		m.listOffset = 0
+	}
+	for i := 0; i < 2; i++ {
+		start, end, _, _ := m.viewport(avail)
+		switch {
+		case m.cursor < start:
+			m.listOffset = m.cursor
+			// Pull the group header above the cursor into view when adjacent:
+			// a task row with its heading is far easier to read.
+			if m.listOffset > 0 && m.rows[m.listOffset-1].header != "" {
+				m.listOffset--
+			}
+		case m.cursor >= end:
+			m.listOffset += m.cursor - end + 1
+		}
+		if m.listOffset < 0 {
+			m.listOffset = 0
+		}
+	}
 }
 
 func (m *Model) renderTaskRow(i int, t *domain.Task, today domain.Date) string {
@@ -218,10 +323,15 @@ func (m *Model) dueNote(t *domain.Task, today domain.Date) string {
 }
 
 // board renders the kanban lanes side by side.
-func (m *Model) board() string {
+func (m *Model) board(avail int) string {
 	width := m.innerWidth()
 	colWidth := (width - 2*(len(boardColumns)-1)) / len(boardColumns)
 	today := m.svc.Today()
+	// Cards are two lines; reserve the column header (2) and footer (1).
+	maxCards := (avail - 3) / 2
+	if maxCards < 1 {
+		maxCards = 1
+	}
 	if colWidth < 18 {
 		// Narrow terminals stack the lanes instead of rendering unreadable
 		// slivers. Cursor addressing is unchanged, so keys behave the same.
@@ -229,10 +339,10 @@ func (m *Model) board() string {
 	}
 	panes := make([]string, len(boardColumns))
 	for i, st := range boardColumns {
-		panes[i] = m.boardColumn(i, st, colWidth, today)
+		panes[i] = m.boardColumn(i, st, colWidth, maxCards, today)
 	}
 	out := lipgloss.JoinHorizontal(lipgloss.Top, panes...)
-	return out + "\n" + m.boardFooter(today)
+	return strings.TrimRight(out, "\n") + "\n" + m.boardFooter(today)
 }
 
 // boardStacked renders the same lanes one under another for narrow terminals.
@@ -247,8 +357,9 @@ func (m *Model) boardStacked(width int, today domain.Date) string {
 	return b.String() + m.boardFooter(today)
 }
 
-// boardColumn renders one lane.
-func (m *Model) boardColumn(idx int, st domain.Status, width int, today domain.Date) string {
+// boardColumn renders one lane, windowed around the cursor when the lane holds
+// more cards than fit.
+func (m *Model) boardColumn(idx int, st domain.Status, width, maxCards int, today domain.Date) string {
 	cards := m.cols[idx]
 	head := fmt.Sprintf("%s %s (%d)", st.Glyph(), st.Label(), len(cards))
 	if st == domain.StatusDoing && m.svc.Cfg.WIPLimit > 0 && len(cards) > m.svc.Cfg.WIPLimit {
@@ -260,9 +371,23 @@ func (m *Model) boardColumn(idx int, st domain.Status, width int, today domain.D
 	if len(cards) == 0 {
 		b.WriteString(styMuted.Render(truncate("  (없음)", width)) + "\n")
 	}
-	for r, t := range cards {
+	start := 0
+	if idx == m.colCursor && m.rowCursor >= maxCards {
+		start = m.rowCursor - maxCards + 1
+	}
+	end := start + maxCards
+	if end > len(cards) {
+		end = len(cards)
+	}
+	if start > 0 {
+		b.WriteString(styMuted.Render(fmt.Sprintf("  ↑ %d건", start)) + "\n")
+	}
+	for r := start; r < end; r++ {
 		selected := idx == m.colCursor && r == m.rowCursor
-		b.WriteString(m.card(t, width, selected, today) + "\n")
+		b.WriteString(m.card(cards[r], width, selected, today) + "\n")
+	}
+	if end < len(cards) {
+		b.WriteString(styMuted.Render(fmt.Sprintf("  ↓ %d건", len(cards)-end)) + "\n")
 	}
 	return lipgloss.NewStyle().Width(width).MarginRight(2).Render(b.String())
 }

@@ -62,6 +62,10 @@ type Model struct {
 	cursor int
 	detail bool
 
+	// listOffset is the first visible row of the list viewport. The list used
+	// to render every row, which scrolled the header off screen past ~15 tasks.
+	listOffset int
+
 	// cols holds the board lanes; colCursor/rowCursor address the selected card.
 	cols      [][]*domain.Task
 	colCursor int

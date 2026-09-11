@@ -247,6 +247,7 @@ func (m *Model) switchTab(t tab) {
 	}
 	m.tab = t
 	m.cursor, m.colCursor, m.rowCursor = 0, 0, 0
+	m.listOffset = 0
 	m.detail = false
 	m.projDrill, m.projSlug = false, ""
 	m.reload()
