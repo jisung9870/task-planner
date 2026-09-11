@@ -75,6 +75,16 @@ func New(svc *service.Service) *Model {
 	in.Prompt = ""
 	in.CharLimit = 400
 	m := &Model{svc: svc, input: in}
+	// Rolling over before the first render means the morning view is already
+	// correct instead of showing yesterday's dates.
+	if rep, err := svc.RolloverIfEnabled(); err != nil {
+		m.setErr(err)
+	} else if !rep.Empty() {
+		m.setStatus("%d건 이월됨", len(rep.Rolled))
+		if w := rep.StaleWarning(); w != "" {
+			m.status += "  · " + w
+		}
+	}
 	m.reload()
 	return m
 }

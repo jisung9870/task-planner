@@ -63,6 +63,9 @@ func taskLine(t *domain.Task, today domain.Date, dueSoon int) string {
 	if note := dueNote(t, today, dueSoon); note != "" {
 		b.WriteString("  " + note)
 	}
+	if t.RolloverCount > 0 && t.IsOpen() {
+		fmt.Fprintf(&b, "  ↻%d", t.RolloverCount)
+	}
 	if t.Status == domain.StatusBlocked {
 		reason := t.BlockedReason
 		if reason == "" && len(t.BlockedBy) > 0 {

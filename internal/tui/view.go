@@ -158,6 +158,9 @@ func (m *Model) renderTaskRow(i int, t *domain.Task, today domain.Date) string {
 	if note := m.dueNote(t, today); note != "" {
 		line += "  " + note
 	}
+	if n := t.RolloverCount; n >= m.svc.Cfg.RolloverWarnAt && t.IsOpen() {
+		line += "  " + styBlocked.Render(fmt.Sprintf("↻%d", n))
+	}
 	if t.Status == domain.StatusBlocked {
 		line += "  " + styBlocked.Render("← "+m.blockNote(t, today))
 	}
@@ -260,6 +263,9 @@ func detailMeta(t *domain.Task) string {
 	}
 	if !t.Estimate.IsZero() {
 		parts = append(parts, "예상 "+t.Estimate.String())
+	}
+	if t.RolloverCount > 0 {
+		parts = append(parts, fmt.Sprintf("이월 %d회", t.RolloverCount))
 	}
 	if len(t.Tags) > 0 {
 		parts = append(parts, "#"+strings.Join(t.Tags, " #"))

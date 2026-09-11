@@ -52,6 +52,7 @@ func newRoot() *cobra.Command {
 		newListCmd(),
 		newShowCmd(),
 		newEditCmd(),
+		newRolloverCmd(),
 		newProjectsCmd(),
 		newIndexCmd(),
 	)
