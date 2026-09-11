@@ -34,8 +34,9 @@ tp time --week                       # 예상 대비 실소요
 tp index --rebuild                   # 인덱스 재생성
 ```
 
+TUI 탭: `1` Today · `2` Week · `3` Board(칸반) · `4` Projects · `5` All
 TUI 키: `a` 추가 · `space` 상태 순환 · `s/d/b/x` 진행/완료/보류/취소 ·
-`enter` 상세 · `e` 편집기 · `/` 필터 · `1`~`4` 탭 · `?` 전체 도움말.
+`enter` 상세 · `e` 편집기 · `/` 필터 · `h/l` Board 열 이동 · `?` 전체 도움말.
 
 ## 질의 문법
 

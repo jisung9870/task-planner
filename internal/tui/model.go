@@ -19,11 +19,19 @@ type tab int
 const (
 	tabToday tab = iota
 	tabWeek
+	tabBoard
 	tabProjects
 	tabAll
 )
 
-var tabNames = []string{"Today", "Week", "Projects", "All"}
+const tabCount = 5
+
+var tabNames = []string{"Today", "Week", "Board", "Projects", "All"}
+
+// boardColumns are the lanes of the kanban view. Terminal states are summarised
+// in the header instead of taking a column: a done pile that grows forever
+// squeezes the lanes that still need attention.
+var boardColumns = []domain.Status{domain.StatusTodo, domain.StatusDoing, domain.StatusBlocked}
 
 type mode int
 
@@ -53,6 +61,11 @@ type Model struct {
 	rows   []row
 	cursor int
 	detail bool
+
+	// cols holds the board lanes; colCursor/rowCursor address the selected card.
+	cols      [][]*domain.Task
+	colCursor int
+	rowCursor int
 
 	// projDrill is true while the Projects tab shows one project's tasks;
 	// projSlug may legitimately be empty (the "미지정" bucket).
@@ -112,6 +125,9 @@ func (m *Model) reload() {
 		ts = m.svc.TodayList()
 	case tabWeek:
 		ts = m.svc.WeekList(today)
+	case tabBoard:
+		m.reloadBoard(today)
+		return
 	case tabProjects:
 		if m.projDrill {
 			ts = m.svc.ProjectList(m.projSlug, false)
@@ -146,6 +162,72 @@ func groupRows(ts []*domain.Task) []row {
 		}
 	}
 	return rows
+}
+
+// reloadBoard buckets open work into lanes. The board always shows the whole
+// open backlog: its job is to answer "진행중이 몇 개인가", which a filtered
+// subset cannot do.
+func (m *Model) reloadBoard(today domain.Date) {
+	ts := m.svc.OpenList()
+	if m.filter != nil && !m.filter.Empty() {
+		ts = m.svc.ApplyFilter(m.filter, ts)
+	}
+	m.cols = make([][]*domain.Task, len(boardColumns))
+	for _, t := range ts {
+		for i, st := range boardColumns {
+			if t.Status == st {
+				m.cols[i] = append(m.cols[i], t)
+				break
+			}
+		}
+	}
+	m.clampBoard()
+}
+
+// clampBoard keeps the cursor on a real card, preferring to stay in the current
+// lane and falling back to the nearest non-empty one.
+func (m *Model) clampBoard() {
+	if len(m.cols) == 0 {
+		return
+	}
+	if m.colCursor < 0 {
+		m.colCursor = 0
+	}
+	if m.colCursor >= len(m.cols) {
+		m.colCursor = len(m.cols) - 1
+	}
+	if len(m.cols[m.colCursor]) == 0 {
+		for i := range m.cols {
+			if len(m.cols[i]) > 0 {
+				m.colCursor = i
+				break
+			}
+		}
+	}
+	if n := len(m.cols[m.colCursor]); m.rowCursor >= n {
+		m.rowCursor = n - 1
+	}
+	if m.rowCursor < 0 {
+		m.rowCursor = 0
+	}
+}
+
+// moveColumn jumps to the next lane that has cards.
+func (m *Model) moveColumn(delta int) {
+	if len(m.cols) == 0 {
+		return
+	}
+	i := m.colCursor
+	for n := 0; n < len(m.cols); n++ {
+		i += delta
+		if i < 0 || i >= len(m.cols) {
+			return
+		}
+		if len(m.cols[i]) > 0 {
+			m.colCursor, m.rowCursor = i, 0
+			return
+		}
+	}
 }
 
 // projectRows renders the per-project rollup, open work first.
@@ -191,6 +273,12 @@ func (m *Model) moveCursor(delta int) {
 
 // current returns the selected task, if any.
 func (m *Model) current() *domain.Task {
+	if m.tab == tabBoard {
+		if m.colCursor < len(m.cols) && m.rowCursor < len(m.cols[m.colCursor]) {
+			return m.cols[m.colCursor][m.rowCursor]
+		}
+		return nil
+	}
 	if m.cursor < 0 || m.cursor >= len(m.rows) {
 		return nil
 	}

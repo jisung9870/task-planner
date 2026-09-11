@@ -53,21 +53,47 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "?":
 		m.mode = modeHelp
 	case "up", "k":
-		m.moveCursor(-1)
+		if m.tab == tabBoard {
+			m.rowCursor--
+			m.clampBoard()
+		} else {
+			m.moveCursor(-1)
+		}
 	case "down", "j":
-		m.moveCursor(1)
+		if m.tab == tabBoard {
+			m.rowCursor++
+			m.clampBoard()
+		} else {
+			m.moveCursor(1)
+		}
+	case "left", "h":
+		if m.tab == tabBoard {
+			m.moveColumn(-1)
+		}
+	case "right", "l":
+		if m.tab == tabBoard {
+			m.moveColumn(1)
+		}
 	case "g", "home":
-		m.cursor = 0
+		m.cursor, m.rowCursor = 0, 0
 		m.clampCursor()
+		m.clampBoard()
 	case "G", "end":
-		m.cursor = len(m.rows) - 1
-		m.clampCursor()
-	case "1", "2", "3", "4":
+		if m.tab == tabBoard {
+			if m.colCursor < len(m.cols) {
+				m.rowCursor = len(m.cols[m.colCursor]) - 1
+			}
+			m.clampBoard()
+		} else {
+			m.cursor = len(m.rows) - 1
+			m.clampCursor()
+		}
+	case "1", "2", "3", "4", "5":
 		m.switchTab(tab(int(msg.String()[0] - '1')))
 	case "tab":
-		m.switchTab((m.tab + 1) % 4)
+		m.switchTab((m.tab + 1) % tabCount)
 	case "shift+tab":
-		m.switchTab((m.tab + 3) % 4)
+		m.switchTab((m.tab + tabCount - 1) % tabCount)
 	case "esc":
 		switch {
 		case m.detail:
@@ -220,7 +246,7 @@ func (m *Model) switchTab(t tab) {
 		return
 	}
 	m.tab = t
-	m.cursor = 0
+	m.cursor, m.colCursor, m.rowCursor = 0, 0, 0
 	m.detail = false
 	m.projDrill, m.projSlug = false, ""
 	m.reload()
@@ -288,6 +314,9 @@ func (m *Model) capture(title string) {
 	if m.tab == tabToday {
 		in.Scheduled = m.svc.Today()
 	}
+	if m.tab == tabBoard && m.colCursor < len(boardColumns) && boardColumns[m.colCursor] == domain.StatusDoing {
+		in.Status = domain.StatusDoing
+	}
 	if m.projDrill {
 		in.Project = m.projSlug
 	}
@@ -329,8 +358,22 @@ func (m *Model) apply(t *domain.Task, to domain.Status, block *domain.BlockInfo)
 	}
 }
 
-// selectID keeps the cursor on the same task across a reload.
+// selectID keeps the cursor on the same task across a reload. On the board a
+// status change moves the card to another lane, so the cursor has to follow it
+// there or the next keystroke would act on an unrelated task.
 func (m *Model) selectID(id string) {
+	if m.tab == tabBoard {
+		for c, col := range m.cols {
+			for r, t := range col {
+				if t.ID == id {
+					m.colCursor, m.rowCursor = c, r
+					return
+				}
+			}
+		}
+		m.clampBoard()
+		return
+	}
 	for i, r := range m.rows {
 		if r.task != nil && r.task.ID == id {
 			m.cursor = i

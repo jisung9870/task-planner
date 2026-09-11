@@ -6,15 +6,18 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/mattn/go-runewidth"
 
 	"task-planner/internal/domain"
 	"task-planner/internal/query"
 )
 
 // pad left-aligns to a display width; %-Ns counts bytes and misaligns on CJK.
+//
+// Width is measured with lipgloss.Width, the same function lipgloss uses when
+// it pads a column. Mixing measurement libraries makes board lanes drift by a
+// cell wherever the two disagree (⏱ and … are the usual culprits).
 func pad(s string, w int) string {
-	d := w - runewidth.StringWidth(s)
+	d := w - lipgloss.Width(s)
 	if d <= 0 {
 		return s
 	}
@@ -115,6 +118,9 @@ func (m *Model) wipNote() string {
 }
 
 func (m *Model) list() string {
+	if m.tab == tabBoard {
+		return m.board()
+	}
 	if len(m.rows) == 0 {
 		return styMuted.Render("  (표시할 항목 없음 — a 로 추가)") + "\n"
 	}
@@ -211,6 +217,131 @@ func (m *Model) dueNote(t *domain.Task, today domain.Date) string {
 		return styBlocked.Render(fmt.Sprintf("D-%d", d))
 	}
 	return styMuted.Render("~" + t.Due.String())
+}
+
+// board renders the kanban lanes side by side.
+func (m *Model) board() string {
+	width := m.innerWidth()
+	colWidth := (width - 2*(len(boardColumns)-1)) / len(boardColumns)
+	today := m.svc.Today()
+	if colWidth < 18 {
+		// Narrow terminals stack the lanes instead of rendering unreadable
+		// slivers. Cursor addressing is unchanged, so keys behave the same.
+		return m.boardStacked(width, today)
+	}
+	panes := make([]string, len(boardColumns))
+	for i, st := range boardColumns {
+		panes[i] = m.boardColumn(i, st, colWidth, today)
+	}
+	out := lipgloss.JoinHorizontal(lipgloss.Top, panes...)
+	return out + "\n" + m.boardFooter(today)
+}
+
+// boardStacked renders the same lanes one under another for narrow terminals.
+func (m *Model) boardStacked(width int, today domain.Date) string {
+	var b strings.Builder
+	for i, st := range boardColumns {
+		b.WriteString(styGroup.Render(fmt.Sprintf("▾ %s (%d)", st.Label(), len(m.cols[i]))) + "\n")
+		for r, t := range m.cols[i] {
+			b.WriteString(m.card(t, width, i == m.colCursor && r == m.rowCursor, today) + "\n")
+		}
+	}
+	return b.String() + m.boardFooter(today)
+}
+
+// boardColumn renders one lane.
+func (m *Model) boardColumn(idx int, st domain.Status, width int, today domain.Date) string {
+	cards := m.cols[idx]
+	head := fmt.Sprintf("%s %s (%d)", st.Glyph(), st.Label(), len(cards))
+	if st == domain.StatusDoing && m.svc.Cfg.WIPLimit > 0 && len(cards) > m.svc.Cfg.WIPLimit {
+		head += " ⚠"
+	}
+	var b strings.Builder
+	b.WriteString(styGroup.Render(truncate(head, width)) + "\n")
+	b.WriteString(styRule.Render(strings.Repeat("─", width)) + "\n")
+	if len(cards) == 0 {
+		b.WriteString(styMuted.Render(truncate("  (없음)", width)) + "\n")
+	}
+	for r, t := range cards {
+		selected := idx == m.colCursor && r == m.rowCursor
+		b.WriteString(m.card(t, width, selected, today) + "\n")
+	}
+	return lipgloss.NewStyle().Width(width).MarginRight(2).Render(b.String())
+}
+
+// card is the two-line cell used on the board.
+func (m *Model) card(t *domain.Task, width int, selected bool, today domain.Date) string {
+	marker := "  "
+	if selected {
+		marker = stySelected.Render("▸ ")
+	}
+	title := truncate(t.Title, width-4)
+	head := marker + title
+	if selected {
+		head = marker + stySelected.Render(title)
+	}
+
+	var meta []string
+	meta = append(meta, t.ShortID())
+	if t.Project != "" {
+		meta = append(meta, t.Project)
+	}
+	if t.Priority != "" {
+		meta = append(meta, string(t.Priority))
+	}
+	if t.Status == domain.StatusDoing && t.StartedAt != nil {
+		meta = append(meta, "⏱"+t.ElapsedActual(m.svc.Now()).String())
+	}
+	if t.Recur != "" {
+		meta = append(meta, "↻")
+	}
+	if n := t.RolloverCount; n >= m.svc.Cfg.RolloverWarnAt {
+		meta = append(meta, fmt.Sprintf("↻%d", n))
+	}
+	sub := "    " + truncate(strings.Join(meta, " · "), width-6)
+	line := styMuted.Render(sub)
+	if t.Overdue(today) {
+		line = styDanger.Render(sub)
+	}
+	return head + "\n" + line
+}
+
+// boardFooter summarises what the lanes deliberately leave out.
+func (m *Model) boardFooter(today domain.Date) string {
+	doneToday, cancelled := 0, 0
+	for _, t := range m.svc.All() {
+		switch {
+		case t.Status == domain.StatusDone && t.Completed.Equal(today):
+			doneToday++
+		case t.Status == domain.StatusCancelled && t.Completed.Equal(today):
+			cancelled++
+		}
+	}
+	return styMuted.Render(fmt.Sprintf("오늘 완료 %d · 취소 %d   h/l 열 이동  j/k 카드 이동",
+		doneToday, cancelled))
+}
+
+// truncate cuts to a display width, appending an ellipsis when it had to cut.
+func truncate(s string, w int) string {
+	if w <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= w {
+		return s
+	}
+	const ellipsis = "…"
+	budget := w - lipgloss.Width(ellipsis)
+	if budget <= 0 {
+		return ellipsis
+	}
+	var b strings.Builder
+	for _, r := range s {
+		if lipgloss.Width(b.String()+string(r)) > budget {
+			break
+		}
+		b.WriteRune(r)
+	}
+	return strings.TrimRight(b.String(), " ") + ellipsis
 }
 
 func (m *Model) renderProjRow(i int, r row) string {
