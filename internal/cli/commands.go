@@ -132,9 +132,24 @@ func newListCmd() *cobra.Command {
 		all     bool
 	)
 	cmd := &cobra.Command{
-		Use:     "list",
-		Aliases: []string{"ls"},
-		Short:   "태스크 목록",
+		Use:     "list [질의]",
+		Aliases: []string{"ls", "q"},
+		Short:   "태스크 목록 / 검색",
+		Long: `태스크 목록. 인자를 주면 질의로 해석한다.
+
+  tp list status:doing project:infra
+  tp list due<7d -status:done
+  tp list is:overdue
+  tp list is:carried rollover>2
+  tp list 파이프라인            # 제목·프로젝트·태그 부분일치
+
+  필드   status project tag priority due scheduled rollover is id
+  연산   : 같음   < <= > >= 비교 (날짜·숫자)
+  날짜   2026-09-15  today  tomorrow  +7d  2w  1m  none  any
+  is     open closed overdue duesoon blocked carried unscheduled recurring
+  부정   앞에 - 또는 ! 를 붙인다 (-status:done, !is:carried)
+
+플래그는 질의보다 앞에 온다: tp list -p infra due<7d`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withService(func(svc *service.Service) error {
 				today := svc.Today()
@@ -148,6 +163,18 @@ func newListCmd() *cobra.Command {
 				default:
 					ts = svc.OpenList()
 				}
+				if expr := strings.Join(args, " "); strings.TrimSpace(expr) != "" {
+					// An explicit query overrides the default "open only" scope:
+					// `tp list status:done` must be able to find completed work.
+					if !all && project == "" {
+						ts = svc.All()
+					}
+					f, err := svc.Filter(expr)
+					if err != nil {
+						return err
+					}
+					ts = svc.ApplyFilter(f, ts)
+				}
 				renderList(cmd.OutOrStdout(), ts, today, svc.Cfg.DueSoonDays)
 				return nil
 			})
@@ -155,6 +182,9 @@ func newListCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVarP(&project, "project", "p", "", "프로젝트로 한정")
 	cmd.Flags().BoolVarP(&all, "all", "a", false, "완료·취소 포함")
+	// Stop flag parsing at the first positional argument so a negated term like
+	// `-status:done` reaches the query parser instead of pflag.
+	cmd.Flags().SetInterspersed(false)
 	return cmd
 }
 

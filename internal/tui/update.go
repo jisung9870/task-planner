@@ -67,9 +67,9 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case m.detail:
 			m.detail = false
 		case m.search != "":
-			m.search = ""
+			m.search, m.filter = "", nil
 			m.reload()
-			m.setStatus("검색 해제")
+			m.setStatus("필터 해제")
 		case m.projDrill:
 			m.projDrill, m.projSlug = false, ""
 			m.cursor = 0
@@ -94,7 +94,7 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.startPrompt(modeCapture, "새 태스크: ", "")
 		return m, textinput.Blink
 	case "/":
-		m.startPrompt(modeSearch, "검색: ", m.search)
+		m.startPrompt(modeSearch, "필터: ", m.search)
 		return m, textinput.Blink
 	case " ":
 		if t := m.current(); t != nil {
@@ -234,13 +234,18 @@ func (m *Model) updatePrompt(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case modeCapture:
 			m.capture(value)
 		case modeSearch:
-			m.search = value
+			f, err := m.svc.Filter(value)
+			if err != nil {
+				m.setErr(err)
+				return m, nil
+			}
+			m.search, m.filter = value, f
 			m.cursor = 0
 			m.reload()
 			if value == "" {
-				m.setStatus("검색 해제")
+				m.setStatus("필터 해제")
 			} else {
-				m.setStatus("검색: %s — %d건", value, countTasks(m.rows))
+				m.setStatus("필터: %s — %d건", value, countTasks(m.rows))
 			}
 		case modeBlock:
 			if t := m.current(); t != nil {

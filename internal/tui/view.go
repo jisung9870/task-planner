@@ -84,7 +84,7 @@ func (m *Model) tabs() string {
 	line := strings.Join(parts, "  ")
 	var suffix []string
 	if m.search != "" {
-		suffix = append(suffix, "검색:"+m.search)
+		suffix = append(suffix, "필터:"+m.search)
 	}
 	if m.projDrill {
 		suffix = append(suffix, "프로젝트:"+query.ProjectLabel(m.projSlug))

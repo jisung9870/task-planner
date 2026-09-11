@@ -13,7 +13,11 @@ const helpFull = `키
   상태        space 순환   s 진행중   d 완료   b 보류   x 취소   u 대기중
   상세        enter (다시 누르면 닫힘)
   편집        e  (외부 편집기 — 저장하고 나오면 자동 반영)
-  검색        /  (제목·프로젝트·태그)
+  필터        /  질의식 또는 자유 단어
+              status:doing  project:infra  tag:ops  priority:P1
+              due<7d  scheduled:today  rollover>2  id:0012
+              is:open|closed|overdue|duesoon|blocked|carried|unscheduled
+              앞에 - 를 붙이면 부정 (-status:done)
   새로고침    r      전체 재인덱싱  R
   종료        q / ctrl+c
 

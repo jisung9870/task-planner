@@ -4,7 +4,6 @@ package tui
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -62,6 +61,7 @@ type Model struct {
 
 	input  textinput.Model
 	search string
+	filter *query.Filter
 
 	width, height int
 
@@ -124,8 +124,8 @@ func (m *Model) reload() {
 		ts = m.svc.All()
 		domain.SortDefault(ts, today)
 	}
-	if m.search != "" {
-		ts = filterSearch(ts, m.search)
+	if m.filter != nil && !m.filter.Empty() {
+		ts = m.svc.ApplyFilter(m.filter, ts)
 	}
 	m.rows = groupRows(ts)
 	m.clampCursor()
@@ -157,18 +157,6 @@ func (m *Model) projectRows() []row {
 		rows = append(rows, row{proj: &c})
 	}
 	return rows
-}
-
-func filterSearch(ts []*domain.Task, q string) []*domain.Task {
-	q = strings.ToLower(q)
-	var out []*domain.Task
-	for _, t := range ts {
-		hay := strings.ToLower(t.Title + " " + t.Project + " " + strings.Join(t.Tags, " "))
-		if strings.Contains(hay, q) {
-			out = append(out, t)
-		}
-	}
-	return out
 }
 
 func (m *Model) clampCursor() {

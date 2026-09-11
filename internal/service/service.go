@@ -198,3 +198,26 @@ func (s *Service) save(t *domain.Task) error {
 	s.idx.Put(t)
 	return s.idx.Flush()
 }
+
+// Query runs a filter expression over every task.
+func (s *Service) Query(expr string) ([]*domain.Task, error) {
+	f, err := query.ParseFilter(expr, s.Today())
+	if err != nil {
+		return nil, err
+	}
+	return f.Apply(s.All(), s.Today(), s.Cfg.DueSoonDays), nil
+}
+
+// Filter compiles an expression against today's date, for callers that want to
+// apply it to a list they already have (the TUI filters the active view).
+func (s *Service) Filter(expr string) (*query.Filter, error) {
+	return query.ParseFilter(expr, s.Today())
+}
+
+// ApplyFilter narrows a list the caller already holds.
+func (s *Service) ApplyFilter(f *query.Filter, ts []*domain.Task) []*domain.Task {
+	if f.Empty() {
+		return ts
+	}
+	return f.Apply(ts, s.Today(), s.Cfg.DueSoonDays)
+}

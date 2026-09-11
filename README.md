@@ -24,11 +24,29 @@ tp week                              # 이번 주
 tp start 1 / tp done 1               # 상태 전이 (#1 또는 제목 일부로 지정)
 tp block 1 "인프라팀 회신 대기"        # 보류 - 사유 필수
 tp projects                          # 프로젝트별 현황
+tp list status:doing project:infra   # 질의
+tp list 'due<7d' -status:done
+tp list is:overdue
 tp index --rebuild                   # 인덱스 재생성
 ```
 
 TUI 키: `a` 추가 · `space` 상태 순환 · `s/d/b/x` 진행/완료/보류/취소 ·
-`enter` 상세 · `/` 검색 · `1`~`4` 탭 · `?` 전체 도움말.
+`enter` 상세 · `e` 편집기 · `/` 필터 · `1`~`4` 탭 · `?` 전체 도움말.
+
+## 질의 문법
+
+CLI(`tp list`)와 TUI(`/`)가 같은 문법을 쓴다.
+
+| | |
+|---|---|
+| 필드 | `status` `project` `tag` `priority` `due` `scheduled` `rollover` `is` `id` |
+| 연산 | `:` 같음, `<` `<=` `>` `>=` 비교(날짜·숫자) |
+| 날짜 | `2026-09-15` `today` `tomorrow` `+7d` `2w` `1m` `week` `none` `any` |
+| `is:` | `open` `closed` `overdue` `duesoon` `blocked` `carried` `unscheduled` `recurring` |
+| 부정 | 앞에 `-` 또는 `!` (`-status:done`) |
+| 자유어 | 제목·프로젝트·태그 부분일치. `"따옴표"` 로 구 묶기 |
+
+조건은 모두 AND 로 묶인다.
 
 ## 데이터
 
