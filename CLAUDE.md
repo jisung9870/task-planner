@@ -22,8 +22,10 @@ cmd/tp → internal/cli, internal/tui → internal/service → internal/query �
 ## 빌드·테스트
 
 ```bash
-make build   # go build -o tp ./cmd/tp
-make test    # go test ./...
+make build     # ./tp 생성 (버전 정보 stamping)
+make install   # ~/.local/bin 에 설치
+make upgrade   # 재빌드 후 교체
+make test      # go test ./...
 make vet
 ```
 
@@ -41,6 +43,10 @@ tmux capture-pane -t tp -p
   로 알려진 키를 지워야 저장 시 중복이 생기지 않는다.
 - 날짜는 `domain.Date`(YYYY-MM-DD, UTC 고정)다. `time.Time` 을 그대로 쓰면 DST·
   타임존에서 하루씩 어긋난다.
+- 설치 스크립트는 POSIX `sh`(macOS 는 bash 3.2)로 돌아간다. 변수 뒤에 한글이
+  바로 오면 `$n개` 가 이름 `n개` 로 파싱되므로 `${n}개` 로 감싼다.
+- 실행 중인 바이너리는 덮어쓰지 않고 temp + `mv` 로 교체한다. 덮어쓰면 Linux 에서
+  `text file busy` 가 나고, TUI 가 떠 있는 동안 파일이 반쯤 쓰인 상태가 된다.
 - 파일명은 제목에서 만들어지므로 제목을 바꾸면 경로가 바뀐다. `SaveTask` 가 이전
   파일을 지우는 이유이며, 이 동작을 없애면 인덱스에 유령 항목이 생긴다.
 

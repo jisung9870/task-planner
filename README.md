@@ -8,9 +8,30 @@
 ## 설치
 
 ```bash
-make build          # ./tp 생성
-./tp init           # vault 생성 (기본 ~/tasks)
+make install        # 빌드 후 ~/.local/bin/tp 에 설치
+tp init             # vault 생성 (기본 ~/tasks)
 ```
+
+`sudo` 가 필요 없는 경로를 기본값으로 쓴다. 개인 도구를 쓰려고 관리자 권한을
+요구하는 순간 설치 자체가 마찰이 되기 때문이다.
+
+| 명령 | 하는 일 |
+|---|---|
+| `make install` | 빌드 후 설치. 이미 설치돼 있으면 알리고 멈춘다 |
+| `make upgrade` | 이 체크아웃에서 다시 빌드해 교체. vault 는 건드리지 않는다 |
+| `make uninstall` | 바이너리만 제거. **vault 데이터는 남긴다** |
+| `make status` | 설치 위치·버전·PATH·vault 상태 |
+| `make build` | 설치 없이 `./tp` 만 생성 |
+
+설치 위치는 `TP_INSTALL_DIR`, `$PREFIX/bin`, `~/.local/bin` 순으로 결정한다.
+
+```bash
+TP_INSTALL_DIR=/usr/local/bin scripts/install.sh install   # 다른 경로
+scripts/install.sh uninstall --purge                       # vault 까지 삭제(확인을 받는다)
+```
+
+`--purge` 는 되돌릴 수 없으므로 vault 경로를 그대로 다시 입력해야 진행된다.
+비대화형 환경에서는 아예 거부한다.
 
 vault 경로는 `--vault`, `$TP_VAULT`, 기본값 `~/tasks` 순으로 결정된다.
 
@@ -32,6 +53,7 @@ tp add "주간보고" --recur weekly      # 반복 (완료 시 다음 회차 자
 tp skip 3                            # 이번 회차만 건너뛰기
 tp time --week                       # 예상 대비 실소요
 tp index --rebuild                   # 인덱스 재생성
+tp version                           # 버전·커밋·빌드 시각
 ```
 
 TUI 탭: `1` Today · `2` Week · `3` Board(칸반) · `4` Projects · `5` All
@@ -107,4 +129,9 @@ tp git sync -m "메시지"   # 즉시 커밋
 ```bash
 make test   # go test ./...
 make vet
+make help   # 전체 타깃 목록
 ```
+
+`make build` 는 `git describe` 로 버전을, `git rev-parse` 로 커밋을 바이너리에
+박아 넣는다. 태그가 없으면 커밋 해시를 쓴다 — 태그가 없다고 `v0.0.0` 같은 값을
+지어내면 나중에 어느 코드가 설치돼 있는지 알 수 없다.

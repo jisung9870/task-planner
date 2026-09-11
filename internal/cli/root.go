@@ -12,11 +12,7 @@ import (
 	"task-planner/internal/service"
 )
 
-var (
-	flagVault string
-	// Version is overridden at build time via -ldflags.
-	Version = "dev"
-)
+var flagVault string
 
 // Execute runs the root command.
 func Execute() int {
@@ -34,7 +30,7 @@ func newRoot() *cobra.Command {
 		Short: "markdown 기반 개인 업무 관리",
 		Long: "tp — markdown 파일이 원천인 개인 업무 관리 도구.\n" +
 			"인자 없이 실행하면 TUI 가 열립니다.",
-		Version:       Version,
+		Version:       VersionString(),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -58,6 +54,7 @@ func newRoot() *cobra.Command {
 		newGitCmd(),
 		newProjectsCmd(),
 		newIndexCmd(),
+		newVersionCmd(),
 	)
 	root.AddCommand(newStatusCmds()...)
 	return root
