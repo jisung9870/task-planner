@@ -101,6 +101,7 @@ type Model struct {
 func New(svc *service.Service) *Model {
 	in := textinput.New()
 	in.Prompt = ""
+	in.PromptStyle = styPrompt
 	in.CharLimit = 400
 	m := &Model{svc: svc, input: in, wideDetail: true}
 	// Rolling over before the first render means the morning view is already

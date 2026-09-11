@@ -45,9 +45,10 @@ func (m *Model) View() string {
 	b.WriteString("\n")
 
 	avail := m.bodyHeight()
+	var body string
 	switch {
 	case m.splitActive():
-		b.WriteString(m.splitBody(avail))
+		body = m.splitBody(avail)
 	case m.detail && m.tab != tabBoard:
 		// Narrow terminal: the detail pane borrows from the same budget so
 		// the footer never scrolls off; give it the smaller share.
@@ -59,14 +60,13 @@ func (m *Model) View() string {
 		if listH < 3 {
 			listH = 3
 		}
-		b.WriteString(m.list(listH))
-		b.WriteString("\n")
-		b.WriteString(styRule.Render(strings.Repeat("─", m.innerWidth())))
-		b.WriteString("\n")
-		b.WriteString(clipLines(m.detailPane(), detailH))
+		body = fitHeight(m.list(listH), listH) + "\n" +
+			styRule.Render(strings.Repeat("─", m.innerWidth())) + "\n" +
+			clipLines(m.detailPane(), detailH)
 	default:
-		b.WriteString(m.list(avail))
+		body = m.list(avail)
 	}
+	b.WriteString(fitHeight(body, avail))
 	b.WriteString("\n")
 	b.WriteString(styRule.Render(strings.Repeat("─", m.innerWidth())))
 	b.WriteString("\n")
@@ -113,22 +113,42 @@ func fitBlock(block string, w int) string {
 	return strings.Join(lines, "\n")
 }
 
-// bodyHeight is the line budget left for the body once the fixed chrome
-// (header, tabs, rules, footer) is subtracted.
+// footerLines is how many lines the footer occupies this frame.
+func (m *Model) footerLines() int {
+	if m.mode == modeCapture || m.mode == modeBlock || m.mode == modeSearch {
+		return 2 // prompt + hint
+	}
+	if m.status != "" || m.errMsg != "" {
+		return 2 // message + help
+	}
+	return 1
+}
+
+// bodyHeight is the exact line budget for the body: terminal height minus the
+// chrome. Exact matters - the body is padded to this size so the footer sits
+// on the terminal's last row instead of floating under short content.
 func (m *Model) bodyHeight() int {
 	h := m.height
 	if h <= 0 {
 		h = 24
 	}
-	chrome := 4 + 3 // header/stats/tabs/rule + rule/footer help line
-	if m.status != "" || m.errMsg != "" || m.mode == modeCapture || m.mode == modeBlock || m.mode == modeSearch {
-		chrome++
-	}
-	avail := h - chrome
+	avail := h - (4 + 1 + m.footerLines()) // header/stats/tabs/rule + rule + footer
 	if avail < 4 {
 		avail = 4
 	}
 	return avail
+}
+
+// fitHeight pads (or clips) a block to exactly n lines.
+func fitHeight(s string, n int) string {
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	if len(lines) > n {
+		lines = lines[:n]
+	}
+	for len(lines) < n {
+		lines = append(lines, "")
+	}
+	return strings.Join(lines, "\n")
 }
 
 // clipLines truncates a multi-line block to max lines, marking the cut.
@@ -141,14 +161,14 @@ func clipLines(s string, max int) string {
 	return strings.Join(out, "\n") + "\n" + styMuted.Render(fmt.Sprintf("  … %d줄 더 (e 편집기로 열람)", len(lines)-max+1))
 }
 
+// innerWidth is the full terminal width - the TUI owns the whole screen, like
+// any full-screen terminal app. (An earlier 140-column cap left wide terminals
+// half empty.)
 func (m *Model) innerWidth() int {
 	if m.width <= 0 {
 		return 78
 	}
-	if m.width > 140 {
-		return 140
-	}
-	return m.width - 1
+	return m.width
 }
 
 func (m *Model) header() string {
@@ -756,8 +776,8 @@ func detailMeta(t *domain.Task) string {
 
 func (m *Model) footer() string {
 	if m.mode == modeCapture || m.mode == modeBlock || m.mode == modeSearch {
-		return styPrompt.Render(m.input.Prompt) + m.input.View() + "\n" +
-			styHelp.Render("enter 확인  esc 취소")
+		// input.View() already renders its own Prompt - do not prepend it again.
+		return m.input.View() + "\n" + styHelp.Render("enter 확인  esc 취소")
 	}
 	msg := ""
 	switch {
