@@ -54,6 +54,7 @@ func newRoot() *cobra.Command {
 		newEditCmd(),
 		newRolloverCmd(),
 		newReportCmd(),
+		newGitCmd(),
 		newProjectsCmd(),
 		newIndexCmd(),
 	)

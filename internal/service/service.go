@@ -24,6 +24,9 @@ type Service struct {
 	vault *store.Vault
 	idx   index.Index
 	now   func() time.Time
+
+	// changes accumulates this session's mutations for one git commit.
+	changes []change
 }
 
 // Open loads a vault and syncs its index.
@@ -55,8 +58,14 @@ func Init(cfg *config.Config) (*Service, error) {
 	return Open(cfg)
 }
 
-// Close flushes the index. Losing it is harmless but rebuilding costs a scan.
-func (s *Service) Close() error { return s.idx.Flush() }
+// Close commits any pending changes and flushes the index. One session (a CLI
+// command, or a TUI run) produces one commit.
+func (s *Service) Close() error {
+	if _, err := s.CommitPending(); err != nil {
+		return err
+	}
+	return s.idx.Flush()
+}
 
 // Vault exposes the underlying paths for adapters that need them (editor,
 // reports, git).

@@ -2,6 +2,7 @@ package service
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -9,6 +10,7 @@ import (
 
 	"task-planner/internal/config"
 	"task-planner/internal/domain"
+	"task-planner/internal/gitsync"
 )
 
 // newTestService builds a vault in a temp dir with a frozen clock so every
@@ -205,4 +207,77 @@ func TestOpenFailsOnMissingVault(t *testing.T) {
 	if _, err := Open(cfg); err == nil {
 		t.Fatal("없는 vault 가 열림")
 	}
+}
+
+// Git integration: a session's changes become exactly one commit.
+func TestAutoCommitProducesOneCommitPerSession(t *testing.T) {
+	if !gitsync.Available() {
+		t.Skip("git 없음")
+	}
+	svc := newTestService(t)
+	if err := svc.GitInit(); err != nil {
+		t.Fatal(err)
+	}
+	gitConfig(t, svc.Cfg.Vault)
+	svc.Cfg.Git.AutoCommit = true
+
+	a, _ := svc.Add(AddInput{Title: "하나"})
+	svc.Add(AddInput{Title: "둘"})
+	svc.Done(a.ID)
+
+	committed, err := svc.CommitPending()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !committed {
+		t.Fatal("커밋되지 않음")
+	}
+	log := gitOut(t, svc.Cfg.Vault, "log", "--format=%s%n%b", "-1")
+	if !strings.Contains(log, "tp: #1 추가, #2 추가, #1 완료") {
+		t.Fatalf("커밋 제목: %q", log)
+	}
+	if !strings.Contains(log, "doing → done") && !strings.Contains(log, "todo → done") {
+		t.Fatalf("본문에 변경 내역 없음: %q", log)
+	}
+	// Second call has nothing pending.
+	if again, err := svc.CommitPending(); err != nil || again {
+		t.Fatalf("중복 커밋: %v %v", again, err)
+	}
+}
+
+func TestAutoCommitOffLeavesRepoUntouched(t *testing.T) {
+	if !gitsync.Available() {
+		t.Skip("git 없음")
+	}
+	svc := newTestService(t)
+	if err := svc.GitInit(); err != nil {
+		t.Fatal(err)
+	}
+	gitConfig(t, svc.Cfg.Vault)
+	svc.Add(AddInput{Title: "하나"})
+	if committed, err := svc.CommitPending(); err != nil || committed {
+		t.Fatalf("auto_commit=false 인데 커밋됨: %v %v", committed, err)
+	}
+}
+
+func gitConfig(t *testing.T, dir string) {
+	t.Helper()
+	for _, kv := range [][2]string{{"user.email", "t@example.com"}, {"user.name", "t"}} {
+		cmd := exec.Command("git", "config", kv[0], kv[1])
+		cmd.Dir = dir
+		if err := cmd.Run(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func gitOut(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	raw, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
 }

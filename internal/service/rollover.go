@@ -52,6 +52,8 @@ func (s *Service) Rollover() (RolloverReport, error) {
 		if err := s.save(t); err != nil {
 			return rep, err
 		}
+		s.recordChange(fmt.Sprintf("%s 이월", t.ShortID()),
+			fmt.Sprintf("%s %s: %s → %s (%d회째)", t.ID, t.Title, from, today, t.RolloverCount))
 		item := Rolled{Task: t, From: from, Count: t.RolloverCount}
 		rep.Rolled = append(rep.Rolled, item)
 		if t.RolloverCount >= s.Cfg.RolloverWarnAt {

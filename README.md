@@ -45,6 +45,20 @@ TUI 키: `a` 추가 · `space` 상태 순환 · `s/d/b/x` 진행/완료/보류/�
 `due`(마감일)는 다른 필드이며, 이 구분이 Today 뷰가 쓸모 있는 이유다.
 `status: blocked` 는 `blocked_reason` 또는 `blocked_by` 없이는 저장되지 않는다.
 
+## git 동기화
+
+vault 를 git 저장소로 두면 이력·백업·기기 간 동기화가 한 번에 해결된다.
+
+```bash
+tp git init        # vault 를 저장소로 만들고 .index/ 를 무시 목록에 추가
+tp git status      # 설정 확인
+tp git sync -m "메시지"   # 즉시 커밋
+```
+
+`config.yaml` 에서 `git.auto_commit: true` 로 두면 **세션마다 한 번** 커밋한다
+(CLI 명령 1회 = 커밋 1개, TUI 종료 시 그 세션의 변경을 묶어 커밋 1개).
+`git.auto_push: true` 면 커밋 후 push 한다.
+
 ## 개발
 
 ```bash

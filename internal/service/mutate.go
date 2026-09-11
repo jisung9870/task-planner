@@ -58,6 +58,7 @@ func (s *Service) Add(in AddInput) (*domain.Task, error) {
 	if err := s.save(t); err != nil {
 		return nil, err
 	}
+	s.recordChange(t.ShortID()+" 추가", fmt.Sprintf("%s %s: 추가", t.ID, t.Title))
 	return t, nil
 }
 
@@ -89,12 +90,15 @@ func (s *Service) SetStatus(ref string, to domain.Status, block *domain.BlockInf
 	if err != nil {
 		return nil, err
 	}
+	from := t.Status
 	if err := t.Transition(to, s.now(), block); err != nil {
 		return nil, err
 	}
 	if err := s.save(t); err != nil {
 		return nil, err
 	}
+	s.recordChange(fmt.Sprintf("%s %s", t.ShortID(), to.Label()),
+		fmt.Sprintf("%s %s: %s → %s", t.ID, t.Title, from, to))
 	return &Result{Task: t}, nil
 }
 
@@ -189,6 +193,7 @@ func (s *Service) Edit(ref string, in EditInput) (*Result, error) {
 	if err := s.save(t); err != nil {
 		return nil, err
 	}
+	s.recordChange(t.ShortID()+" 수정", fmt.Sprintf("%s %s: %s", t.ID, t.Title, strings.Join(changes, " ")))
 	return &Result{Task: t}, nil
 }
 
@@ -203,6 +208,7 @@ func (s *Service) Delete(ref string) error {
 		return err
 	}
 	s.idx.Remove(t.ID)
+	s.recordChange(t.ShortID()+" 삭제", fmt.Sprintf("%s %s: 삭제", t.ID, t.Title))
 	return s.idx.Flush()
 }
 
