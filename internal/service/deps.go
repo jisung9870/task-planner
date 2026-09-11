@@ -117,7 +117,7 @@ func (s *Service) releaseDependents(finished *domain.Task) ([]Unblocked, error) 
 		if err != nil {
 			return out, err
 		}
-		if err := t.Transition(domain.StatusTodo, s.now(), nil); err != nil {
+		if err := t.Transition(domain.StatusTodo, s.now(), &domain.TransitionOpts{SessionCap: s.Cfg.SessionCap}); err != nil {
 			return out, err
 		}
 		t.AppendLog(s.now(), "선행 %s 완료로 보류 해제", finished.ID)

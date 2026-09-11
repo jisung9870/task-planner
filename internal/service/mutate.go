@@ -93,7 +93,10 @@ func (s *Service) SetStatus(ref string, to domain.Status, block *domain.BlockInf
 		return nil, err
 	}
 	from := t.Status
-	if err := t.Transition(to, s.now(), block); err != nil {
+	if err := t.Transition(to, s.now(), &domain.TransitionOpts{
+		Block:      block,
+		SessionCap: s.Cfg.SessionCap,
+	}); err != nil {
 		return nil, err
 	}
 	if err := s.save(t); err != nil {

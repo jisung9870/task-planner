@@ -11,13 +11,26 @@ type BlockInfo struct {
 	By     []string
 }
 
+// TransitionOpts carries everything a state change needs beyond the target.
+type TransitionOpts struct {
+	Block *BlockInfo
+	// SessionCap bounds a single 진행중 session. A task left running overnight
+	// would otherwise record 14 hours and poison the estimate-vs-actual data
+	// that makes tracking worth doing at all. Zero disables the cap.
+	SessionCap Duration
+}
+
 // Transition applies a status change together with every field the change
 // implies, and records it in the body log. It is the only supported way to move
 // a task between states: callers that set Status directly will drift.
-func (t *Task) Transition(to Status, at time.Time, block *BlockInfo) error {
+func (t *Task) Transition(to Status, at time.Time, opts *TransitionOpts) error {
 	if !to.Valid() {
 		return fmt.Errorf("알 수 없는 상태: %q", to)
 	}
+	if opts == nil {
+		opts = &TransitionOpts{}
+	}
+	block := opts.Block
 	from := t.Status
 	if from == to && to != StatusBlocked {
 		return nil
@@ -51,6 +64,8 @@ func (t *Task) Transition(to Status, at time.Time, block *BlockInfo) error {
 		t.Completed = Date{}
 	}
 
+	capped := t.applyTimer(from, to, at, opts.SessionCap)
+
 	t.Status = to
 	t.Updated = today
 
@@ -58,8 +73,40 @@ func (t *Task) Transition(to Status, at time.Time, block *BlockInfo) error {
 	if to == StatusBlocked && t.BlockedReason != "" {
 		detail = " (" + t.BlockedReason + ")"
 	}
+	if elapsed := t.lastSession; elapsed > 0 {
+		detail += fmt.Sprintf(" [+%s]", elapsed)
+		if capped {
+			detail += " (상한 적용)"
+		}
+		t.lastSession = 0
+	}
 	t.AppendLog(at, "%s → %s%s", from, to, detail)
 	return nil
+}
+
+// applyTimer starts or stops the work clock around a status change and reports
+// whether the session hit the cap.
+func (t *Task) applyTimer(from, to Status, at time.Time, cap Duration) bool {
+	switch {
+	case to == StatusDoing && from != StatusDoing:
+		started := at
+		t.StartedAt = &started
+		return false
+	case from == StatusDoing && to != StatusDoing && t.StartedAt != nil:
+		elapsed := Duration(at.Sub(*t.StartedAt))
+		if elapsed < 0 {
+			elapsed = 0
+		}
+		capped := false
+		if cap > 0 && elapsed > cap {
+			elapsed, capped = cap, true
+		}
+		t.Actual += elapsed
+		t.lastSession = elapsed
+		t.StartedAt = nil
+		return capped
+	}
+	return false
 }
 
 // BlockedDays reports how long a hold has been open, for the "왜 아직 보류지"

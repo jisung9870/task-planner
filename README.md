@@ -28,6 +28,7 @@ tp projects                          # 프로젝트별 현황
 tp list status:doing project:infra   # 질의
 tp list 'due<7d' -status:done
 tp list is:overdue
+tp time --week                       # 예상 대비 실소요
 tp index --rebuild                   # 인덱스 재생성
 ```
 
@@ -63,6 +64,10 @@ CLI(`tp list`)와 TUI(`/`)가 같은 문법을 쓴다.
 태스크 파일은 YAML frontmatter + markdown 본문이다. `scheduled`(착수 예정일)와
 `due`(마감일)는 다른 필드이며, 이 구분이 Today 뷰가 쓸모 있는 이유다.
 `status: blocked` 는 `blocked_reason` 또는 `blocked_by` 없이는 저장되지 않는다.
+
+진행중으로 바꾸면 타이머가 돌고, 벗어날 때 `actual` 에 누적된다. 한 세션은
+`session_cap`(기본 8h)으로 제한된다 — 밤새 켜둔 태스크가 예상 대비 실소요
+데이터를 망치지 않게 하기 위해서다.
 
 ## git 동기화
 

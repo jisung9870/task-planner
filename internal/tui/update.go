@@ -2,6 +2,7 @@ package tui
 
 import (
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -25,6 +26,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case vaultChangedMsg:
 		m.handleVaultChanged()
 		return m, waitForChange(m.watcher)
+	case tickMsg:
+		// Only the elapsed column depends on wall-clock time, so the tick just
+		// triggers a redraw.
+		return m, tickCmd()
 	case tea.KeyMsg:
 		switch m.mode {
 		case modeCapture, modeBlock, modeSearch:
@@ -117,6 +122,15 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.openEditor()
 	}
 	return m, nil
+}
+
+// tickMsg drives the running-timer display.
+type tickMsg time.Time
+
+// tickCmd redraws once a minute. Anything faster would burn CPU for a column
+// that only changes at minute resolution.
+func tickCmd() tea.Cmd {
+	return tea.Tick(time.Minute, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
 
 // vaultChangedMsg means a file under tasks/ changed outside this process.

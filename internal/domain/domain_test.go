@@ -85,7 +85,7 @@ func TestBlockedRequiresReason(t *testing.T) {
 	if err := task.Transition(StatusBlocked, at, nil); err == nil {
 		t.Fatal("사유 없는 보류가 통과함")
 	}
-	if err := task.Transition(StatusBlocked, at, &BlockInfo{Reason: "인프라팀 회신 대기"}); err != nil {
+	if err := task.Transition(StatusBlocked, at, &TransitionOpts{Block: &BlockInfo{Reason: "인프라팀 회신 대기"}}); err != nil {
 		t.Fatal(err)
 	}
 	if task.BlockedSince.IsZero() {
@@ -147,5 +147,76 @@ func TestOverdueAndDueSoon(t *testing.T) {
 	task = &Task{Status: StatusTodo, Due: NewDate(2026, time.September, 14)}
 	if !task.DueSoon(today, 3) {
 		t.Error("D-2 를 임박으로 보지 않음")
+	}
+}
+
+func TestTimerAccumulatesAcrossSessions(t *testing.T) {
+	start := time.Date(2026, 9, 12, 9, 0, 0, 0, time.Local)
+	task := &Task{ID: "T-1", Title: "x", Status: StatusTodo}
+
+	if err := task.Transition(StatusDoing, start, nil); err != nil {
+		t.Fatal(err)
+	}
+	if task.StartedAt == nil {
+		t.Fatal("started_at 미설정")
+	}
+	if err := task.Transition(StatusTodo, start.Add(90*time.Minute), nil); err != nil {
+		t.Fatal(err)
+	}
+	if task.StartedAt != nil {
+		t.Fatal("started_at 이 남아 있음")
+	}
+	if got := task.Actual.String(); got != "1h30m" {
+		t.Fatalf("actual = %s", got)
+	}
+
+	// A second session adds to the first.
+	task.Transition(StatusDoing, start.Add(3*time.Hour), nil)
+	task.Transition(StatusDone, start.Add(3*time.Hour+30*time.Minute), nil)
+	if got := task.Actual.String(); got != "2h" {
+		t.Fatalf("누적 actual = %s", got)
+	}
+	logs := strings.Join(task.LogLines(), "\n")
+	if !strings.Contains(logs, "[+1h30m]") || !strings.Contains(logs, "[+30m]") {
+		t.Fatalf("세션 시간이 로그에 없음:\n%s", logs)
+	}
+}
+
+// A task left running overnight would record the whole night and destroy the
+// estimate-vs-actual signal, which is the only reason to track time at all.
+func TestTimerAppliesSessionCap(t *testing.T) {
+	start := time.Date(2026, 9, 12, 17, 0, 0, 0, time.Local)
+	task := &Task{ID: "T-1", Title: "x", Status: StatusTodo}
+	opts := &TransitionOpts{SessionCap: Duration(8 * time.Hour)}
+
+	task.Transition(StatusDoing, start, opts)
+	task.Transition(StatusDone, start.Add(16*time.Hour), opts)
+
+	if got := task.Actual.String(); got != "8h" {
+		t.Fatalf("actual = %s", got)
+	}
+	if !strings.Contains(strings.Join(task.LogLines(), "\n"), "상한 적용") {
+		t.Fatalf("상한 적용 표시 없음: %v", task.LogLines())
+	}
+}
+
+func TestElapsedActualIncludesRunningSession(t *testing.T) {
+	start := time.Date(2026, 9, 12, 9, 0, 0, 0, time.Local)
+	task := &Task{ID: "T-1", Title: "x", Status: StatusTodo, Actual: Duration(time.Hour)}
+	task.Transition(StatusDoing, start, nil)
+	if got := task.ElapsedActual(start.Add(30 * time.Minute)).String(); got != "1h30m" {
+		t.Fatalf("elapsed = %s", got)
+	}
+}
+
+// Re-entering 진행중 while already running must not reset the clock.
+func TestTimerIgnoresRedundantDoingTransition(t *testing.T) {
+	start := time.Date(2026, 9, 12, 9, 0, 0, 0, time.Local)
+	task := &Task{ID: "T-1", Title: "x", Status: StatusTodo}
+	task.Transition(StatusDoing, start, nil)
+	first := *task.StartedAt
+	task.Transition(StatusDoing, start.Add(time.Hour), nil)
+	if !task.StartedAt.Equal(first) {
+		t.Fatalf("타이머가 재설정됨: %v != %v", task.StartedAt, first)
 	}
 }

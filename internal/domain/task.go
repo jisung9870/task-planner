@@ -88,6 +88,10 @@ type Task struct {
 
 	Body string `yaml:"-"`
 	Path string `yaml:"-"`
+
+	// lastSession is the duration just accumulated, used to annotate the log
+	// line. It is transient and never serialized.
+	lastSession Duration
 }
 
 // ErrBlockedNeedsReason is returned when a hold has no explanation.

@@ -6,8 +6,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/goccy/go-yaml"
+
+	"task-planner/internal/domain"
 )
 
 // EnvVault overrides the vault path for a single invocation.
@@ -36,6 +39,10 @@ type Config struct {
 	// DueSoonDays controls the deadline warning window in list views.
 	DueSoonDays int `yaml:"due_soon_days,omitempty"`
 
+	// SessionCap bounds one 진행중 session when computing actual time. A task
+	// left running overnight would otherwise record the whole night.
+	SessionCap domain.Duration `yaml:"session_cap,omitempty"`
+
 	Git GitConfig `yaml:"git"`
 }
 
@@ -54,6 +61,7 @@ func Default(vault string) *Config {
 		AutoRollover:   true,
 		RolloverWarnAt: 3,
 		DueSoonDays:    3,
+		SessionCap:     domain.Duration(8 * time.Hour),
 		Git:            GitConfig{Remote: "origin"},
 	}
 }
@@ -97,6 +105,9 @@ func Load(vault string) (*Config, error) {
 	}
 	if cfg.DueSoonDays <= 0 {
 		cfg.DueSoonDays = 3
+	}
+	if cfg.SessionCap < 0 {
+		cfg.SessionCap = 0
 	}
 	return cfg, nil
 }

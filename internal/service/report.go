@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"task-planner/internal/domain"
+	"task-planner/internal/query"
 	"task-planner/internal/report"
 	"task-planner/internal/store"
 )
@@ -35,4 +36,19 @@ func (s *Service) WriteWeekReport(ref domain.Date) (string, error) {
 		return "", fmt.Errorf("%s 쓰기 실패: %w", path, err)
 	}
 	return path, nil
+}
+
+// TimeSummary aggregates tracked effort for a period. Zero dates mean "all".
+func (s *Service) TimeSummary(from, to domain.Date) []query.ProjectTime {
+	return query.TimeSummary(s.All(), from, to, s.now())
+}
+
+// Running returns the task currently being timed, if any.
+func (s *Service) Running() *domain.Task {
+	for _, t := range s.All() {
+		if t.Status == domain.StatusDoing && t.StartedAt != nil {
+			return t
+		}
+	}
+	return nil
 }

@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
@@ -152,6 +153,11 @@ func (m *Model) renderTaskRow(i int, t *domain.Task, today domain.Date) string {
 		meta = append(meta, "~"+t.Estimate.String())
 	}
 	line := body
+	if t.Status == domain.StatusDoing && t.StartedAt != nil {
+		meta = append(meta, "⏱"+t.ElapsedActual(m.svc.Now()).String())
+	} else if !t.Actual.IsZero() {
+		meta = append(meta, "⏱"+t.Actual.String())
+	}
 	if len(meta) > 0 {
 		line += "  " + styMuted.Render(strings.Join(meta, " · "))
 	}
@@ -281,6 +287,9 @@ func detailMeta(t *domain.Task) string {
 	}
 	if !t.Estimate.IsZero() {
 		parts = append(parts, "예상 "+t.Estimate.String())
+	}
+	if !t.Actual.IsZero() || t.StartedAt != nil {
+		parts = append(parts, "실소요 "+t.ElapsedActual(time.Now()).String())
 	}
 	if t.RolloverCount > 0 {
 		parts = append(parts, fmt.Sprintf("이월 %d회", t.RolloverCount))

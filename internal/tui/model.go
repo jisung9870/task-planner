@@ -95,9 +95,9 @@ func New(svc *service.Service) *Model {
 
 func (m *Model) Init() tea.Cmd {
 	if m.watcher == nil {
-		return textinput.Blink
+		return tea.Batch(textinput.Blink, tickCmd())
 	}
-	return tea.Batch(textinput.Blink, waitForChange(m.watcher))
+	return tea.Batch(textinput.Blink, tickCmd(), waitForChange(m.watcher))
 }
 
 // SetWatcher attaches an external-change source before the program starts.
