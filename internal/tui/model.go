@@ -70,10 +70,13 @@ type Model struct {
 	// to render every row, which scrolled the header off screen past ~15 tasks.
 	listOffset int
 
-	// cols holds the board lanes; colCursor/rowCursor address the selected card.
+	// cols holds the lanes of grid tabs (Board: 상태 3열, Week: 요일 7열 +
+	// 미배정); colCursor/rowCursor address the selected card.
 	cols      [][]*domain.Task
 	colCursor int
 	rowCursor int
+	// weekDays are the 7 dates of the Week grid, parallel to cols[0..6].
+	weekDays []domain.Date
 
 	// projDrill is true while the Projects tab shows one project's tasks;
 	// projSlug may legitimately be empty (the "미지정" bucket).
@@ -132,7 +135,8 @@ func (m *Model) reload() {
 	case tabToday:
 		ts = m.svc.TodayList()
 	case tabWeek:
-		ts = m.svc.WeekList(today)
+		m.reloadWeek(today)
+		return
 	case tabBoard:
 		m.reloadBoard(today)
 		return
@@ -191,6 +195,30 @@ func (m *Model) reloadBoard(today domain.Date) {
 	}
 	m.clampBoard()
 }
+
+// weekLaneUnassigned is the index of the 미배정 lane in the Week grid.
+const weekLaneUnassigned = 7
+
+// reloadWeek buckets the week's work by day, plus a lane for tasks that belong
+// to the week but have no date inside it. This is the view that finally uses
+// query.WeekDays - a status-grouped list cannot show how the week is laid out.
+func (m *Model) reloadWeek(today domain.Date) {
+	ts := m.svc.WeekList(today)
+	if m.filter != nil && !m.filter.Empty() {
+		ts = m.svc.ApplyFilter(m.filter, ts)
+	}
+	buckets, days := query.WeekDays(ts, today)
+	m.weekDays = days
+	m.cols = make([][]*domain.Task, 8)
+	for i, d := range days {
+		m.cols[i] = buckets[d]
+	}
+	m.cols[weekLaneUnassigned] = buckets[domain.Date{}]
+	m.clampBoard()
+}
+
+// gridTab reports whether the current tab uses the lane/card cursor model.
+func (m *Model) gridTab() bool { return m.tab == tabBoard || m.tab == tabWeek }
 
 // clampBoard keeps the cursor on a real card, preferring to stay in the current
 // lane and falling back to the nearest non-empty one.
@@ -281,7 +309,7 @@ func (m *Model) moveCursor(delta int) {
 
 // current returns the selected task, if any.
 func (m *Model) current() *domain.Task {
-	if m.tab == tabBoard {
+	if m.gridTab() {
 		if m.colCursor < len(m.cols) && m.rowCursor < len(m.cols[m.colCursor]) {
 			return m.cols[m.colCursor][m.rowCursor]
 		}

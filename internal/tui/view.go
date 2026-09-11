@@ -78,9 +78,9 @@ func (m *Model) View() string {
 func (m *Model) wide() bool { return m.innerWidth() >= 100 }
 
 // splitActive: the right-hand detail pane renders on wide terminals for list
-// tabs whenever a task is selected. The board draws its own columns.
+// tabs whenever a task is selected. Grid tabs draw their own columns.
 func (m *Model) splitActive() bool {
-	return m.wide() && m.wideDetail && m.tab != tabBoard && m.current() != nil
+	return m.wide() && m.wideDetail && !m.gridTab() && m.current() != nil
 }
 
 // splitBody renders list and detail side by side, both clipped to the height
@@ -231,6 +231,9 @@ func (m *Model) wipNote() string {
 func (m *Model) list(avail int) string {
 	if m.tab == tabBoard {
 		return m.board(avail)
+	}
+	if m.tab == tabWeek {
+		return m.weekGrid(avail)
 	}
 	if len(m.rows) == 0 {
 		return styMuted.Render("  (표시할 항목 없음 — a 로 추가)")
@@ -522,6 +525,137 @@ func truncate(s string, w int) string {
 		return ""
 	}
 	return ansi.Truncate(s, w, "…")
+}
+
+// weekGrid renders 요일 7컬럼 + 하단 미배정 lane. Answers "이번 주 뭐가 어디
+// 배치돼 있나" with an actual time axis - the grouped list could not.
+func (m *Model) weekGrid(avail int) string {
+	width := m.innerWidth()
+	colW := (width - 2*6) / 7
+	today := m.svc.Today()
+	if colW < 13 {
+		return m.weekStacked(width, today)
+	}
+
+	// The 미배정 lane takes its share off the top of the budget.
+	lane := m.cols[weekLaneUnassigned]
+	laneMax := 3
+	laneH := 0
+	if len(lane) > 0 {
+		laneH = 1 + min(len(lane), laneMax)
+		if len(lane) > laneMax {
+			laneH++ // ↓ indicator
+		}
+	}
+	dayAvail := avail - laneH
+	maxCards := (dayAvail - 2) / 2
+	if maxCards < 1 {
+		maxCards = 1
+	}
+
+	panes := make([]string, 7)
+	for i := range m.weekDays {
+		panes[i] = m.weekColumn(i, colW, maxCards, today)
+	}
+	out := strings.TrimRight(lipgloss.JoinHorizontal(lipgloss.Top, panes...), "\n")
+	if laneH > 0 {
+		out += "\n" + m.weekLane(lane, width, laneMax)
+	}
+	return out
+}
+
+// weekColumn renders one day.
+func (m *Model) weekColumn(idx, width, maxCards int, today domain.Date) string {
+	d := m.weekDays[idx]
+	cards := m.cols[idx]
+	head := fmt.Sprintf("%s %s", d.WeekdayKO(), d.Time().Format("01-02"))
+	if len(cards) > 0 {
+		head += fmt.Sprintf(" %d", len(cards))
+	}
+	var b strings.Builder
+	if d.Equal(today) {
+		b.WriteString(styTabActive.Render(truncate("▾ "+head, width)) + "\n")
+	} else {
+		b.WriteString(styGroup.Render(truncate("  "+head, width)) + "\n")
+	}
+	b.WriteString(styRule.Render(strings.Repeat("─", width)) + "\n")
+	start := 0
+	if idx == m.colCursor && m.rowCursor >= maxCards {
+		start = m.rowCursor - maxCards + 1
+	}
+	end := start + maxCards
+	if end > len(cards) {
+		end = len(cards)
+	}
+	if start > 0 {
+		b.WriteString(styMuted.Render(fmt.Sprintf(" ↑%d", start)) + "\n")
+	}
+	for r := start; r < end; r++ {
+		b.WriteString(m.card(cards[r], width, idx == m.colCursor && r == m.rowCursor, today) + "\n")
+	}
+	if end < len(cards) {
+		b.WriteString(styMuted.Render(fmt.Sprintf(" ↓%d", len(cards)-end)) + "\n")
+	}
+	return lipgloss.NewStyle().Width(width).MarginRight(2).Render(b.String())
+}
+
+// weekLane renders the 미배정 strip: work that belongs to the week but has no
+// day yet. `]` pulls a task onto today.
+func (m *Model) weekLane(lane []*domain.Task, width, laneMax int) string {
+	today := m.svc.Today()
+	var b strings.Builder
+	head := fmt.Sprintf("미배정 (%d)", len(lane))
+	if m.colCursor == weekLaneUnassigned {
+		b.WriteString(styTabActive.Render("▾ "+head) + styMuted.Render("   ] 로 오늘에 배정") + "\n")
+	} else {
+		b.WriteString(styGroup.Render("▾ "+head) + "\n")
+	}
+	start := 0
+	if m.colCursor == weekLaneUnassigned && m.rowCursor >= laneMax {
+		start = m.rowCursor - laneMax + 1
+	}
+	end := min(start+laneMax, len(lane))
+	for r := start; r < end; r++ {
+		t := lane[r]
+		cursor := "  "
+		if m.colCursor == weekLaneUnassigned && r == m.rowCursor {
+			cursor = stySelected.Render("▸ ")
+		}
+		line := fmt.Sprintf("%s %s %s", t.Status.Glyph(), pad(t.ShortID(), 5), t.Title)
+		if t.Project != "" {
+			line += "  " + styMuted.Render(t.Project)
+		}
+		if note := m.dueNote(t, today); note != "" {
+			line += "  " + note
+		}
+		b.WriteString("  " + cursor + truncate(line, width-6) + "\n")
+	}
+	if rest := len(lane) - end + start; rest > 0 {
+		b.WriteString(styMuted.Render(fmt.Sprintf("    ↓ %d건", rest)) + "\n")
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// weekStacked lists the days vertically for narrow terminals.
+func (m *Model) weekStacked(width int, today domain.Date) string {
+	var b strings.Builder
+	for i, d := range m.weekDays {
+		if len(m.cols[i]) == 0 && !d.Equal(today) {
+			continue // an empty past/future day is noise in a narrow screen
+		}
+		mark := "  "
+		if d.Equal(today) {
+			mark = "▾ "
+		}
+		b.WriteString(styGroup.Render(fmt.Sprintf("%s%s %s (%d)", mark, d.WeekdayKO(), d.Time().Format("01-02"), len(m.cols[i]))) + "\n")
+		for r, t := range m.cols[i] {
+			b.WriteString(m.card(t, width, i == m.colCursor && r == m.rowCursor, today) + "\n")
+		}
+	}
+	if lane := m.cols[weekLaneUnassigned]; len(lane) > 0 {
+		b.WriteString(m.weekLane(lane, width, len(lane)))
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 func (m *Model) renderProjRow(i int, r row) string {

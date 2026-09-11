@@ -8,8 +8,10 @@ const helpLine = "a 추가  e 편집  space 상태  s 진행  d 완료  b 보류
 const helpFull = `키
 
   이동        ↑/k  ↓/j   g 맨 위   G 맨 아래
-              ←/h  →/l   (Board 에서 열 이동)
+              ←/h  →/l   (Board·Week 에서 열 이동)
   탭          1 Today   2 Week   3 Board   4 Projects   5 All
+  Week        요일 7컬럼 + 미배정 lane.  [ / ] 로 예정일 하루 이동
+              미배정에서 ] 는 오늘로 배정
   추가        a  (한 줄 캡처 — 나머지 필드는 나중에)
   상태        space 순환   s 진행중   d 완료   b 보류   x 취소   u 대기중
   상세        넓은 화면: 우측 고정 패널 (enter 로 접기/펼치기)

@@ -53,33 +53,37 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "?":
 		m.mode = modeHelp
 	case "up", "k":
-		if m.tab == tabBoard {
+		if m.gridTab() {
 			m.rowCursor--
 			m.clampBoard()
 		} else {
 			m.moveCursor(-1)
 		}
 	case "down", "j":
-		if m.tab == tabBoard {
+		if m.gridTab() {
 			m.rowCursor++
 			m.clampBoard()
 		} else {
 			m.moveCursor(1)
 		}
 	case "left", "h":
-		if m.tab == tabBoard {
+		if m.gridTab() {
 			m.moveColumn(-1)
 		}
 	case "right", "l":
-		if m.tab == tabBoard {
+		if m.gridTab() {
 			m.moveColumn(1)
+		}
+	case "[", "]":
+		if m.tab == tabWeek {
+			m.shiftScheduled(msg.String() == "]")
 		}
 	case "g", "home":
 		m.cursor, m.rowCursor = 0, 0
 		m.clampCursor()
 		m.clampBoard()
 	case "G", "end":
-		if m.tab == tabBoard {
+		if m.gridTab() {
 			if m.colCursor < len(m.cols) {
 				m.rowCursor = len(m.cols[m.colCursor]) - 1
 			}
@@ -324,6 +328,10 @@ func (m *Model) capture(title string) {
 	if m.tab == tabBoard && m.colCursor < len(boardColumns) && boardColumns[m.colCursor] == domain.StatusDoing {
 		in.Status = domain.StatusDoing
 	}
+	// Capturing while a Week day column is selected schedules for that day.
+	if m.tab == tabWeek && m.colCursor < len(m.weekDays) {
+		in.Scheduled = m.weekDays[m.colCursor]
+	}
 	if m.projDrill {
 		in.Project = m.projSlug
 	}
@@ -369,11 +377,11 @@ func (m *Model) apply(t *domain.Task, to domain.Status, block *domain.BlockInfo)
 	}
 }
 
-// selectID keeps the cursor on the same task across a reload. On the board a
-// status change moves the card to another lane, so the cursor has to follow it
-// there or the next keystroke would act on an unrelated task.
+// selectID keeps the cursor on the same task across a reload. On a grid tab a
+// status or date change moves the card to another lane, so the cursor has to
+// follow it there or the next keystroke would act on an unrelated task.
 func (m *Model) selectID(id string) {
-	if m.tab == tabBoard {
+	if m.gridTab() {
 		for c, col := range m.cols {
 			for r, t := range col {
 				if t.ID == id {
@@ -392,6 +400,32 @@ func (m *Model) selectID(id string) {
 		}
 	}
 	m.clampCursor()
+}
+
+// shiftScheduled moves the selected task's start date by one day - the Week
+// grid's re-planning gesture. An unscheduled task gets today first, so the
+// first press pulls it out of the 미배정 lane instead of jumping blindly.
+func (m *Model) shiftScheduled(forward bool) {
+	t := m.current()
+	if t == nil {
+		return
+	}
+	var next domain.Date
+	if t.Scheduled.IsZero() {
+		next = m.svc.Today()
+	} else if forward {
+		next = t.Scheduled.AddDays(1)
+	} else {
+		next = t.Scheduled.AddDays(-1)
+	}
+	res, err := m.svc.Edit(t.ID, service.EditInput{Scheduled: &next})
+	if err != nil {
+		m.setErr(err)
+		return
+	}
+	m.reload()
+	m.selectID(res.Task.ID)
+	m.setStatus("%s 예정 → %s (%s)", res.Task.ShortID(), next, next.WeekdayKO())
 }
 
 func (m *Model) refresh(full bool) {
