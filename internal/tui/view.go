@@ -164,6 +164,9 @@ func (m *Model) renderTaskRow(i int, t *domain.Task, today domain.Date) string {
 	if note := m.dueNote(t, today); note != "" {
 		line += "  " + note
 	}
+	if t.Recur != "" && t.IsOpen() {
+		line += "  " + styMuted.Render("↻")
+	}
 	if n := t.RolloverCount; n >= m.svc.Cfg.RolloverWarnAt && t.IsOpen() {
 		line += "  " + styBlocked.Render(fmt.Sprintf("↻%d", n))
 	}
@@ -290,6 +293,9 @@ func detailMeta(t *domain.Task) string {
 	}
 	if !t.Actual.IsZero() || t.StartedAt != nil {
 		parts = append(parts, "실소요 "+t.ElapsedActual(time.Now()).String())
+	}
+	if t.Recur != "" {
+		parts = append(parts, "반복 "+t.Recur)
 	}
 	if t.RolloverCount > 0 {
 		parts = append(parts, fmt.Sprintf("이월 %d회", t.RolloverCount))

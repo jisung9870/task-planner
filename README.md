@@ -28,6 +28,8 @@ tp projects                          # 프로젝트별 현황
 tp list status:doing project:infra   # 질의
 tp list 'due<7d' -status:done
 tp list is:overdue
+tp add "주간보고" --recur weekly      # 반복 (완료 시 다음 회차 자동 생성)
+tp skip 3                            # 이번 회차만 건너뛰기
 tp time --week                       # 예상 대비 실소요
 tp index --rebuild                   # 인덱스 재생성
 ```
@@ -68,6 +70,15 @@ CLI(`tp list`)와 TUI(`/`)가 같은 문법을 쓴다.
 진행중으로 바꾸면 타이머가 돌고, 벗어날 때 `actual` 에 누적된다. 한 세션은
 `session_cap`(기본 8h)으로 제한된다 — 밤새 켜둔 태스크가 예상 대비 실소요
 데이터를 망치지 않게 하기 위해서다.
+
+## 반복 규칙 (`recur`)
+
+`daily` `weekly` `monthly` `weekdays` `every 3 days` `every 2 weeks`
+`every monday` `mon,thu` `monthly on 15` (한국어 `매일` `매주` `평일` `매월 15일` 도 가능)
+
+완료하면 다음 회차가 **새 파일**로 생긴다. 회차마다 파일이 따로 남아야 주간
+리포트가 "그 주에 실제로 무슨 일이 있었는지" 말할 수 있다. 취소하면 시리즈가
+끝나고, 이번 회차만 건너뛰려면 `tp skip` 을 쓴다.
 
 ## git 동기화
 

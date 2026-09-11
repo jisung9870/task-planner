@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"task-planner/internal/domain"
+	"task-planner/internal/recur"
 )
 
 // AddInput is the full set of fields a capture can carry. Only Title is
@@ -29,6 +30,11 @@ func (s *Service) Add(in AddInput) (*domain.Task, error) {
 	title := strings.TrimSpace(in.Title)
 	if title == "" {
 		return nil, fmt.Errorf("제목이 비어 있음")
+	}
+	if in.Recur != "" {
+		if _, err := recur.Parse(in.Recur); err != nil {
+			return nil, err
+		}
 	}
 	today := s.Today()
 	status := in.Status
@@ -84,6 +90,8 @@ type Result struct {
 	Warnings []string
 	// Unblocked lists tasks released by this change, if any.
 	Unblocked []Unblocked
+	// Next is the follow-up occurrence created for a recurring task.
+	Next *domain.Task
 }
 
 // SetStatus moves a task between states, writing the change and its log line.
@@ -114,6 +122,15 @@ func (s *Service) SetStatus(ref string, to domain.Status, block *domain.BlockInf
 	for _, u := range released {
 		res.Warnings = append(res.Warnings,
 			fmt.Sprintf("%s 보류 해제됨 — %s", u.Task.ShortID(), u.Task.Title))
+	}
+	// Only completion rolls the series forward. Cancelling ends it - stopping a
+	// recurring chore has to be possible without editing frontmatter.
+	if to == domain.StatusDone {
+		next, err := s.spawnNextOccurrence(t)
+		if err != nil {
+			return res, err
+		}
+		res.Next = next
 	}
 	return res, nil
 }
@@ -211,6 +228,11 @@ func (s *Service) Edit(ref string, in EditInput) (*Result, error) {
 		t.Links = *in.Links
 	}
 	if in.Recur != nil && *in.Recur != t.Recur {
+		if *in.Recur != "" {
+			if _, err := recur.Parse(*in.Recur); err != nil {
+				return nil, err
+			}
+		}
 		changes = append(changes, "recur="+*in.Recur)
 		t.Recur = *in.Recur
 	}

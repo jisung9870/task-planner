@@ -245,6 +245,23 @@ func newStatusCmds() []*cobra.Command {
 		})
 	}
 
+	skip := &cobra.Command{
+		Use:   "skip <태스크>",
+		Short: "반복 태스크의 이번 회차를 건너뛰고 다음 회차 생성",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return withService(func(svc *service.Service) error {
+				res, err := svc.Skip(args[0])
+				if err != nil {
+					return err
+				}
+				printResult(cmd, res)
+				return nil
+			})
+		},
+	}
+	cmds = append(cmds, skip)
+
 	var by []string
 	block := &cobra.Command{
 		Use:   "block <태스크> [사유]",
@@ -339,6 +356,10 @@ func newIndexCmd() *cobra.Command {
 func printResult(cmd *cobra.Command, res *service.Result) {
 	fmt.Fprintf(cmd.OutOrStdout(), "%s %s  %s → %s\n",
 		res.Task.Status.Glyph(), res.Task.ShortID(), res.Task.Title, res.Task.Status.Label())
+	if res.Next != nil {
+		fmt.Fprintf(cmd.OutOrStdout(), "  ↻ 다음 회차 %s  %s (%s)\n",
+			res.Next.ShortID(), res.Next.Title, res.Next.Scheduled)
+	}
 	for _, u := range res.Unblocked {
 		fmt.Fprintf(cmd.OutOrStdout(), "  ↑ %s %s  보류 해제\n", u.Task.ShortID(), u.Task.Title)
 	}

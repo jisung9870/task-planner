@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -320,6 +321,9 @@ func (m *Model) apply(t *domain.Task, to domain.Status, block *domain.BlockInfo)
 	m.reload()
 	m.selectID(id)
 	m.setStatus("%s → %s", res.Task.ShortID(), to.Label())
+	if res.Next != nil {
+		m.status += fmt.Sprintf("  · 다음 회차 %s (%s)", res.Next.ShortID(), res.Next.Scheduled)
+	}
 	for _, w := range res.Warnings {
 		m.status += "  · " + w
 	}
