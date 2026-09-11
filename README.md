@@ -129,6 +129,7 @@ tp git sync -m "메시지"   # 즉시 커밋
 ```bash
 make test   # go test ./...
 make vet
+make scan   # 의존성 취약점·시크릿 스캔 (trivy)
 make help   # 전체 타깃 목록
 ```
 

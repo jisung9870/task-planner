@@ -6,7 +6,7 @@ COMMIT    := $(shell git rev-parse --short HEAD 2>/dev/null)
 BUILDDATE := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 LDFLAGS   := -s -w -X $(CLI_PKG).Version=$(VERSION) -X $(CLI_PKG).Commit=$(COMMIT) -X $(CLI_PKG).BuildDate=$(BUILDDATE)
 
-.PHONY: build test fmt vet run clean tidy install upgrade uninstall status help
+.PHONY: build test fmt vet scan run clean tidy install upgrade uninstall status help
 
 ## build: ./tp 생성 (버전 정보 포함)
 build:
@@ -36,6 +36,11 @@ fmt:
 
 vet:
 	go vet $(PKG)
+
+## scan: 의존성 취약점·시크릿 스캔 (trivy 필요)
+scan:
+	@command -v trivy >/dev/null 2>&1 || { echo "trivy 가 없습니다 — brew install trivy"; exit 1; }
+	trivy repo . --scanners vuln,secret --exit-code 1 --severity HIGH,CRITICAL
 
 run: build
 	./$(BIN)
