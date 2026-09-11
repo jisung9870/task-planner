@@ -1,0 +1,13 @@
+# build output
+/tp
+/dist/
+
+# vault-local derived state (never in code repo, but guard anyway)
+.index/
+
+# editor / OS
+.DS_Store
+*.swp
+
+# agent runtime state
+.omc/
