@@ -116,6 +116,27 @@ CLI(`tp list`)와 TUI(`/`)가 같은 문법을 쓴다.
 리포트가 "그 주에 실제로 무슨 일이 있었는지" 말할 수 있다. 취소하면 시리즈가
 끝나고, 이번 회차만 건너뛰려면 `tp skip` 을 쓴다.
 
+## MCP 서버 모드
+
+Claude Code 같은 MCP 클라이언트가 vault 를 직접 읽고 조작하게 한다. stdio
+transport 라서 **데몬이 없다** — 클라이언트가 `tp mcp` 를 자식 프로세스로 띄우고
+세션이 끝나면 함께 종료된다.
+
+```bash
+claude mcp add task-planner -- tp mcp             # 현재 프로젝트
+claude mcp add -s user task-planner -- tp mcp     # 모든 프로젝트
+```
+
+| 종류 | 도구 |
+|---|---|
+| 읽기 | `task_today` `task_week` `task_query` `task_get` `summary` `project_status` `time_summary` `report_week` |
+| 쓰기 | `task_add` `task_status` `task_skip` `task_edit` `rollover` |
+
+모든 도구가 TUI·CLI 와 같은 service 계층을 통과하므로 도메인 규칙(보류 사유
+강제, 전이 로그, 반복 회차 생성, 후행 자동 해제, WIP 경고)이 그대로 지켜진다.
+**삭제 도구는 없다** — 접을 일은 `cancelled` 로 남기고, 파일 삭제는 사람이
+CLI 에서 한다. git auto_commit 이 켜져 있으면 쓰기 도구 호출마다 커밋된다.
+
 ## git 동기화
 
 vault 를 git 저장소로 두면 이력·백업·기기 간 동기화가 한 번에 해결된다.

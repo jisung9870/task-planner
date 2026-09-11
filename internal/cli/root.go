@@ -55,6 +55,7 @@ func newRoot() *cobra.Command {
 		newProjectsCmd(),
 		newIndexCmd(),
 		newVersionCmd(),
+		newMCPCmd(),
 	)
 	root.AddCommand(newStatusCmds()...)
 	return root

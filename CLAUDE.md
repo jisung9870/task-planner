@@ -11,7 +11,7 @@ cmd/tp → internal/cli, internal/tui → internal/service → internal/query �
                                    internal/store, internal/index
 ```
 
-1. **어댑터(`cli`, `tui`, 향후 `server`/`mcp`)는 `service` 만 호출한다.** 파일이나
+1. **어댑터(`cli`, `tui`, `mcpserver`, 향후 `server`)는 `service` 만 호출한다.** 파일이나
    인덱스를 직접 건드리면 API·MCP 확장 시 같은 로직을 두 번 구현하게 된다.
 2. **`domain` 은 외부 패키지를 import 하지 않는다.** 표준 라이브러리만.
 3. **`index` 는 파생물이다.** `.index/` 를 지워도 markdown 에서 완전히 재생성되어야
@@ -43,6 +43,8 @@ tmux capture-pane -t tp -p
   로 알려진 키를 지워야 저장 시 중복이 생기지 않는다.
 - 날짜는 `domain.Date`(YYYY-MM-DD, UTC 고정)다. `time.Time` 을 그대로 쓰면 DST·
   타임존에서 하루씩 어긋난다.
+- `tp mcp` 모드에서 stdout 은 JSON-RPC 전용이다. fmt.Println 한 줄이 프로토콜을
+  깨뜨린다 — 로그·디버그 출력은 반드시 stderr 로.
 - 설치 스크립트는 POSIX `sh`(macOS 는 bash 3.2)로 돌아간다. 변수 뒤에 한글이
   바로 오면 `$n개` 가 이름 `n개` 로 파싱되므로 `${n}개` 로 감싼다.
 - 실행 중인 바이너리는 덮어쓰지 않고 temp + `mv` 로 교체한다. 덮어쓰면 Linux 에서
