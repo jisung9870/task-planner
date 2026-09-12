@@ -75,3 +75,38 @@ func TestDefaultViewsParse(t *testing.T) {
 		}
 	}
 }
+
+func TestBlockingCountsMatchesBlocking(t *testing.T) {
+	svc := newTestService(t)
+	blocker, _ := svc.Add(AddInput{Title: "선행"})
+	for _, title := range []string{"뒤1", "뒤2"} {
+		waiting, _ := svc.Add(AddInput{Title: title})
+		if _, err := svc.Block(waiting.ID, "", []string{blocker.ID}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	counts := svc.BlockingCounts()
+	if got, want := counts[blocker.ID], len(svc.Blocking(blocker.ID)); got != want {
+		t.Fatalf("count = %d, Blocking = %d", got, want)
+	}
+	if counts[blocker.ID] != 2 {
+		t.Fatalf("count = %d", counts[blocker.ID])
+	}
+}
+
+func TestClosedOnCountsTerminalWork(t *testing.T) {
+	svc := newTestService(t)
+	done, _ := svc.Add(AddInput{Title: "완료할 것"})
+	svc.Done(done.ID)
+	cancelled, _ := svc.Add(AddInput{Title: "접을 것"})
+	svc.Cancel(cancelled.ID)
+	svc.Add(AddInput{Title: "그대로 둘 것"})
+
+	c := svc.ClosedOn(svc.Today())
+	if c.Done != 1 || c.Cancelled != 1 {
+		t.Fatalf("%+v", c)
+	}
+	if other := svc.ClosedOn(svc.Today().AddDays(-1)); other.Done != 0 || other.Cancelled != 0 {
+		t.Fatalf("%+v", other)
+	}
+}

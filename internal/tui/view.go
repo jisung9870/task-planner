@@ -264,7 +264,7 @@ func (m *Model) tabs() string {
 // flight, what has been stuck. Zero-valued signals are omitted - a row of
 // zeros is noise, and the point is that anything printed here needs a look.
 func (m *Model) statsLine() string {
-	sum := m.svc.Summarize()
+	sum := m.summary
 	var parts []string
 	if sum.DueToday > 0 {
 		parts = append(parts, styBlocked.Render(fmt.Sprintf("오늘마감 %d", sum.DueToday)))
@@ -296,7 +296,7 @@ func (m *Model) statsLine() string {
 // loadNote reports how much work today is carrying. It is omitted when nothing
 // is estimated: "0h" would read as a free day when it actually means unknown.
 func (m *Model) loadNote() string {
-	l := m.svc.DayLoad(m.svc.Today())
+	l := m.todayLoad
 	if l.Estimated == 0 {
 		return ""
 	}
@@ -474,7 +474,7 @@ func (m *Model) renderTaskRow(i int, t *domain.Task, today domain.Date) string {
 	if t.Status == domain.StatusBlocked {
 		line += "  " + styBlocked.Render("← "+m.blockNote(t, today))
 	}
-	if n := len(m.svc.Blocking(t.ID)); n > 0 && t.IsOpen() {
+	if n := m.blockingCount[t.ID]; n > 0 && t.IsOpen() {
 		line += "  " + styMuted.Render(fmt.Sprintf("→%d대기", n))
 	}
 
@@ -643,17 +643,9 @@ func (m *Model) card(t *domain.Task, day domain.Date, width int, selected bool, 
 
 // boardFooter summarises what the lanes deliberately leave out.
 func (m *Model) boardFooter(today domain.Date) string {
-	doneToday, cancelled := 0, 0
-	for _, t := range m.svc.All() {
-		switch {
-		case t.Status == domain.StatusDone && t.Completed.Equal(today):
-			doneToday++
-		case t.Status == domain.StatusCancelled && t.Completed.Equal(today):
-			cancelled++
-		}
-	}
+	c := m.boardClosed
 	return styMuted.Render(fmt.Sprintf("오늘 완료 %d · 취소 %d   h/l 열 이동  H/L 카드를 옆 열로  j/k 카드 이동",
-		doneToday, cancelled))
+		c.Done, c.Cancelled))
 }
 
 // truncate cuts to a display width, appending an ellipsis when it had to cut.
@@ -903,10 +895,11 @@ func (m *Model) detailPane() string {
 	if t == nil {
 		return styMuted.Render("  (선택된 태스크 없음)") + "\n"
 	}
-	full, err := m.svc.Load(t.ID)
+	d, err := m.fullTask(t.ID)
 	if err != nil {
 		return styErr.Render("  "+err.Error()) + "\n"
 	}
+	full := d.task
 	var b strings.Builder
 	fmt.Fprintf(&b, "  %s  %s\n", styTitle.Render(full.ID), full.Title)
 	fmt.Fprintf(&b, "  %s\n", styMuted.Render(detailMeta(full)))
@@ -916,19 +909,19 @@ func (m *Model) detailPane() string {
 			b.WriteString("  " + l + "\n")
 		}
 	}
-	if known, missing := m.svc.Blockers(full); len(known)+len(missing) > 0 {
+	if len(d.known)+len(d.missing) > 0 {
 		b.WriteString("\n  " + styGroup.Render("선행") + "\n")
-		for _, d := range known {
-			b.WriteString("  " + styMuted.Render(fmt.Sprintf("%s %s  %s", d.Status.Glyph(), d.ShortID(), d.Title)) + "\n")
+		for _, dep := range d.known {
+			b.WriteString("  " + styMuted.Render(fmt.Sprintf("%s %s  %s", dep.Status.Glyph(), dep.ShortID(), dep.Title)) + "\n")
 		}
-		for _, id := range missing {
+		for _, id := range d.missing {
 			b.WriteString("  " + styDanger.Render("? "+id+"  (인덱스에 없음)") + "\n")
 		}
 	}
-	if blocking := m.svc.Blocking(full.ID); len(blocking) > 0 {
+	if len(d.blocking) > 0 {
 		b.WriteString("\n  " + styGroup.Render("후행") + "\n")
-		for _, d := range blocking {
-			b.WriteString("  " + styMuted.Render(fmt.Sprintf("%s %s  %s", d.Status.Glyph(), d.ShortID(), d.Title)) + "\n")
+		for _, dep := range d.blocking {
+			b.WriteString("  " + styMuted.Render(fmt.Sprintf("%s %s  %s", dep.Status.Glyph(), dep.ShortID(), dep.Title)) + "\n")
 		}
 	}
 	if logs := full.LogLines(); len(logs) > 0 {

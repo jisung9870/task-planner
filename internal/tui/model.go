@@ -70,6 +70,17 @@ type row struct {
 
 func (r row) selectable() bool { return r.task != nil || r.proj != nil }
 
+// detailCache holds everything the detail pane needs for one task. Without it
+// the pane re-reads the markdown file and rescans the index on every redraw -
+// once per keystroke while the cursor moves.
+type detailCache struct {
+	id       string
+	task     *domain.Task
+	known    []*domain.Task
+	missing  []string
+	blocking []*domain.Task
+}
+
 // Model is the bubbletea state.
 type Model struct {
 	svc *service.Service
@@ -132,6 +143,14 @@ type Model struct {
 	confirm       func()
 	confirmPrompt string
 
+	// Per-reload aggregates. Every one of these used to be recomputed inside
+	// View(), i.e. on every keystroke and every tick.
+	summary       service.Summary
+	todayLoad     service.DayLoad
+	blockingCount map[string]int
+	boardClosed   service.DayCounts
+	detail_       detailCache
+
 	width, height int
 
 	status string
@@ -174,9 +193,14 @@ func (m *Model) Init() tea.Cmd {
 // SetWatcher attaches an external-change source before the program starts.
 func (m *Model) SetWatcher(w *watch.Watcher) { m.watcher = w }
 
-// reload re-runs the current view's query. Cheap: it reads the in-memory index.
+// reload re-runs the current view's query and refreshes everything the frame
+// would otherwise recompute. Cheap: it reads the in-memory index.
 func (m *Model) reload() {
 	today := m.svc.Today()
+	m.summary = m.svc.Summarize()
+	m.todayLoad = m.svc.DayLoad(today)
+	m.blockingCount = m.svc.BlockingCounts()
+	m.detail_ = detailCache{}
 	m.detailOffset = 0
 	var ts []*domain.Task
 	switch m.tab {
@@ -232,6 +256,7 @@ func (m *Model) reloadBoard(today domain.Date) {
 	if m.filter != nil && !m.filter.Empty() {
 		ts = m.svc.ApplyFilter(m.filter, ts)
 	}
+	m.boardClosed = m.svc.ClosedOn(today)
 	m.cols = make([][]*domain.Task, len(boardColumns))
 	for _, t := range ts {
 		for i, st := range boardColumns {
@@ -264,6 +289,23 @@ func (m *Model) reloadWeek(today domain.Date) {
 	}
 	m.cols[weekLaneUnassigned] = buckets[domain.Date{}]
 	m.clampBoard()
+}
+
+// fullTask returns the selected task with its body, cached for the frame. The
+// detail pane asks for this on every redraw.
+func (m *Model) fullTask(id string) (detailCache, error) {
+	if m.detail_.id == id && m.detail_.task != nil {
+		return m.detail_, nil
+	}
+	full, err := m.svc.Load(id)
+	if err != nil {
+		return detailCache{}, err
+	}
+	c := detailCache{id: id, task: full}
+	c.known, c.missing = m.svc.Blockers(full)
+	c.blocking = m.svc.Blocking(id)
+	m.detail_ = c
+	return c, nil
 }
 
 // targets are the tasks the next action applies to: the marked set when there
