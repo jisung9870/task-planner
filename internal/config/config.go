@@ -39,6 +39,10 @@ type Config struct {
 	// DueSoonDays controls the deadline warning window in list views.
 	DueSoonDays int `yaml:"due_soon_days,omitempty"`
 
+	// DailyCapacity is how much work a day is expected to hold. It drives the
+	// over-commitment warning; it is a planning number, not a time sheet.
+	DailyCapacity domain.Duration `yaml:"daily_capacity,omitempty"`
+
 	// SessionCap bounds one 진행중 session when computing actual time. A task
 	// left running overnight would otherwise record the whole night.
 	SessionCap domain.Duration `yaml:"session_cap,omitempty"`
@@ -61,6 +65,7 @@ func Default(vault string) *Config {
 		AutoRollover:   true,
 		RolloverWarnAt: 3,
 		DueSoonDays:    3,
+		DailyCapacity:  domain.Duration(6 * time.Hour),
 		SessionCap:     domain.Duration(8 * time.Hour),
 		Git:            GitConfig{Remote: "origin"},
 	}
@@ -108,6 +113,9 @@ func Load(vault string) (*Config, error) {
 	}
 	if cfg.SessionCap < 0 {
 		cfg.SessionCap = 0
+	}
+	if cfg.DailyCapacity < 0 {
+		cfg.DailyCapacity = 0
 	}
 	return cfg, nil
 }

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -251,6 +252,9 @@ func (m *Model) statsLine() string {
 		parts = append(parts, styDanger.Render(fmt.Sprintf("마감초과 %d", sum.Overdue)))
 	}
 	parts = append(parts, m.wipNote())
+	if note := m.loadNote(); note != "" {
+		parts = append(parts, note)
+	}
 	if sum.Blocked > 0 {
 		label := fmt.Sprintf("보류 %d", sum.Blocked)
 		if sum.BlockedMaxDay > 0 {
@@ -266,6 +270,26 @@ func (m *Model) statsLine() string {
 		parts = append(parts, styMuted.Render(fmt.Sprintf("이월 %d", sum.Carried)))
 	}
 	return " " + strings.Join(parts, styMuted.Render("  ·  "))
+}
+
+// loadNote reports how much work today is carrying. It is omitted when nothing
+// is estimated: "0h" would read as a free day when it actually means unknown.
+func (m *Model) loadNote() string {
+	l := m.svc.DayLoad(m.svc.Today())
+	if l.Estimated == 0 {
+		return ""
+	}
+	label := "배정 " + l.Planned.String()
+	if l.Limit > 0 {
+		label = fmt.Sprintf("배정 %s/%s", l.Planned, l.Limit)
+	}
+	if l.Estimated < l.Tasks {
+		label += fmt.Sprintf(" (%d/%d)", l.Estimated, l.Tasks)
+	}
+	if l.Over() {
+		return styDanger.Render(label + " ⚠")
+	}
+	return label
 }
 
 func (m *Model) wipNote() string {
@@ -657,7 +681,7 @@ func (m *Model) weekColumn(idx, width, maxCards int, today domain.Date) string {
 	} else {
 		b.WriteString(styGroup.Render(truncate("  "+head, width)) + "\n")
 	}
-	b.WriteString(styRule.Render(strings.Repeat("─", width)) + "\n")
+	b.WriteString(m.weekRule(idx, width) + "\n")
 	start := 0
 	if idx == m.colCursor && m.rowCursor >= maxCards {
 		start = m.rowCursor - maxCards + 1
@@ -676,6 +700,42 @@ func (m *Model) weekColumn(idx, width, maxCards int, today domain.Date) string {
 		b.WriteString(styMuted.Render(fmt.Sprintf(" ↓%d", len(cards)-end)) + "\n")
 	}
 	return lipgloss.NewStyle().Width(width).MarginRight(2).Render(b.String())
+}
+
+// weekRule draws a day column's underline and hangs that day's planned hours
+// off its right end. The rule has columns to spare while the header does not,
+// and a day's load belongs next to the day, not in a separate legend.
+//
+// The load is hidden while a filter is active: it counts the whole day's work,
+// so printing it beside a filtered card count would look like a contradiction.
+func (m *Model) weekRule(idx, width int) string {
+	if m.filter != nil && !m.filter.Empty() || idx >= len(m.weekLoads) {
+		return styRule.Render(strings.Repeat("─", width))
+	}
+	l := m.weekLoads[idx]
+	tag := compactHours(l.Planned)
+	if l.Estimated == 0 || lipgloss.Width(tag)+2 > width {
+		return styRule.Render(strings.Repeat("─", width))
+	}
+	style := styMuted
+	if l.Over() {
+		style = styDanger
+		tag += "!"
+	}
+	dashes := width - lipgloss.Width(tag) - 1
+	return styRule.Render(strings.Repeat("─", dashes)) + " " + style.Render(tag)
+}
+
+// compactHours shortens a duration for a grid header, where "3h30m" costs more
+// columns than the weekday it sits next to. Minutes below an hour stay minutes:
+// "0.5h" is a worse answer to "how long" than "30m".
+func compactHours(d domain.Duration) string {
+	h := d.Std().Hours()
+	if h < 1 {
+		return d.String()
+	}
+	s := strconv.FormatFloat(h, 'f', 1, 64)
+	return strings.TrimSuffix(s, ".0") + "h"
 }
 
 // weekLane renders the 미배정 strip: work that belongs to the week but has no

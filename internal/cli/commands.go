@@ -106,7 +106,8 @@ func newTodayCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withService(func(svc *service.Service) error {
 				today := svc.Today()
-				fmt.Fprintf(cmd.OutOrStdout(), "%s (%s)\n", today, today.WeekdayKO())
+				fmt.Fprintf(cmd.OutOrStdout(), "%s (%s)%s\n", today, today.WeekdayKO(),
+					loadSuffix(svc.DayLoad(today)))
 				renderList(cmd.OutOrStdout(), svc.TodayList(), today, svc.Cfg.DueSoonDays)
 				return nil
 			})
@@ -124,6 +125,7 @@ func newWeekCmd() *cobra.Command {
 				start := today.WeekStart()
 				fmt.Fprintf(cmd.OutOrStdout(), "%s  (%s ~ %s)\n",
 					today.WeekLabel(), start, start.AddDays(6))
+				renderWeekLoad(cmd.OutOrStdout(), svc.WeekLoad(today), today)
 				renderList(cmd.OutOrStdout(), svc.WeekList(today), today, svc.Cfg.DueSoonDays)
 				return nil
 			})

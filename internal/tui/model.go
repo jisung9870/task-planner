@@ -93,6 +93,8 @@ type Model struct {
 	rowCursor int
 	// weekDays are the 7 dates of the Week grid, parallel to cols[0..6].
 	weekDays []domain.Date
+	// weekLoads is the planned work per weekday, parallel to weekDays.
+	weekLoads []service.DayLoad
 
 	// projDrill is true while the Projects tab shows one project's tasks;
 	// projSlug may legitimately be empty (the "미지정" bucket).
@@ -226,6 +228,7 @@ func (m *Model) reloadWeek(today domain.Date) {
 	}
 	buckets, days := query.WeekDays(ts, today)
 	m.weekDays = days
+	m.weekLoads = m.svc.WeekLoad(today)
 	m.cols = make([][]*domain.Task, 8)
 	for i, d := range days {
 		m.cols[i] = buckets[d]
