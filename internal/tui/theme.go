@@ -1,6 +1,31 @@
 package tui
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"os"
+
+	"github.com/charmbracelet/lipgloss"
+)
+
+// initTheme drops every colour when NO_COLOR is set.
+//
+// lipgloss already adapts to light and dark backgrounds, but a user who has
+// asked for no colour at all - a pipe, a screen reader, a terminal without
+// them - is asking for something the adaptive palette cannot express.
+func initTheme() {
+	if os.Getenv("NO_COLOR") == "" {
+		return
+	}
+	plain := lipgloss.NewStyle()
+	bold := lipgloss.NewStyle().Bold(true)
+	styTitle, styDate = bold, plain
+	styTabActive, styTabInactive = bold.Underline(true), plain
+	styGroup, styMuted = bold, plain
+	styDoing, styBlocked, styDanger = plain, plain, plain
+	styDoneRow = lipgloss.NewStyle().Strikethrough(true)
+	stySelected = bold
+	styHelp, styStatus, styErr, styPrompt = plain, plain, plain, bold
+	styRule = plain
+}
 
 // Colors are adaptive so the same binary is legible on light and dark
 // terminals without a theme setting.
