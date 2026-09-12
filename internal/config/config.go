@@ -47,7 +47,20 @@ type Config struct {
 	// left running overnight would otherwise record the whole night.
 	SessionCap domain.Duration `yaml:"session_cap,omitempty"`
 
+	// Views are saved filter expressions the TUI binds to its view picker (v).
+	// They live in config rather than in a dotfile because they are part of how
+	// this vault is worked, and a vault is the thing people sync between
+	// machines.
+	Views []View `yaml:"views,omitempty"`
+
 	Git GitConfig `yaml:"git"`
+}
+
+// View is one saved query. A list rather than a map: the picker numbers them,
+// and a map would renumber itself on every save.
+type View struct {
+	Name  string `yaml:"name"`
+	Query string `yaml:"query"`
 }
 
 type GitConfig struct {
@@ -67,7 +80,17 @@ func Default(vault string) *Config {
 		DueSoonDays:    3,
 		DailyCapacity:  domain.Duration(6 * time.Hour),
 		SessionCap:     domain.Duration(8 * time.Hour),
-		Git:            GitConfig{Remote: "origin"},
+		// Seeds, not policy: they are the questions this tool was built to
+		// answer, and they are editable like any other config key.
+		Views: []View{
+			{Name: "진행중", Query: "status:doing"},
+			{Name: "마감 임박", Query: "is:duesoon"},
+			{Name: "마감 초과", Query: "is:overdue"},
+			{Name: "반복 이월", Query: "is:carried rollover>2"},
+			{Name: "보류", Query: "is:blocked"},
+			{Name: "날짜 없음", Query: "is:open is:unscheduled"},
+		},
+		Git: GitConfig{Remote: "origin"},
 	}
 }
 

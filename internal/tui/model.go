@@ -45,6 +45,8 @@ const (
 	modeNewProject
 	modeProjectDue
 	modeNote
+	modeSaveView
+	modeViews
 	modeConfirm
 	modeHelp
 )
@@ -53,7 +55,7 @@ const (
 func (md mode) prompting() bool {
 	switch md {
 	case modeCapture, modeBlock, modeSearch, modeSpan, modeProject, modeNewProject,
-		modeProjectDue, modeNote:
+		modeProjectDue, modeNote, modeSaveView:
 		return true
 	}
 	return false
@@ -121,6 +123,8 @@ type Model struct {
 	histPos   int
 	histDraft string
 
+	// viewCursor is the selection in the saved-view picker.
+	viewCursor int
 	// confirm holds the action a y/n prompt will run when answered.
 	confirm       func()
 	confirmPrompt string

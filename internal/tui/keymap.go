@@ -4,7 +4,7 @@ import "strings"
 
 // helpLine is the persistent footer. The TUI has no menus, so this line is the
 // entire discovery surface for common actions.
-const helpLine = "a 추가  N 메모  e 편집  space 상태  s 진행  d 완료  b 보류  D 기간  p 프로젝트  [ ] 이동  enter 상세  r 새로고침  1-5 탭  q 종료  ? 도움말"
+const helpLine = "a 추가  N 메모  space 상태  d 완료  D 기간  m 선택  v 뷰  ! 다음할일  / 검색  ctrl+z 되돌리기  1-5 탭  ? 도움말"
 
 // helpLines splits the help text once per frame; it is short enough that the
 // allocation does not matter and a cached copy would drift.
@@ -20,6 +20,8 @@ const helpFull = `키
               밖에서 파일이 바뀌었으면 덮어쓰지 않고 거부합니다
   선택        m  현재 항목 선택/해제   M  전체 해제   esc 도 해제
               선택이 있으면 상태·기간·프로젝트·메모·삭제 키가 선택 전체에 적용
+  뷰          v  저장된 질의 목록 (1-9 로 즉시 적용)
+              v → s  현재 필터를 이름 붙여 저장 (config.yaml 의 views)
   탭          1 Today   2 Week   3 Board   4 Projects   5 All
   추가        a  (한 줄 캡처 — 나머지 필드는 나중에)
   상태        space 순환   s 진행중   d 완료   b 보류   x 취소   u 대기중

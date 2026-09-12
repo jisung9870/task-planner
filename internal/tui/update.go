@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"task-planner/internal/config"
 	"task-planner/internal/domain"
 	"task-planner/internal/editor"
 	"task-planner/internal/query"
@@ -47,6 +48,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case m.mode == modeHelp:
 			m.updateHelp(msg)
 			return m, nil
+		case m.mode == modeViews:
+			return m.updateViews(msg)
 		case m.mode == modeConfirm:
 			m.updateConfirm(msg)
 			return m, nil
@@ -70,6 +73,70 @@ func (m *Model) updateConfirm(msg tea.KeyMsg) {
 	default:
 		m.setStatus("취소됨")
 	}
+}
+
+// updateViews drives the saved-view picker.
+func (m *Model) updateViews(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	views := m.svc.Views()
+	key := msg.String()
+	if len(key) == 1 && key[0] >= '1' && key[0] <= '9' {
+		if i := int(key[0] - '1'); i < len(views) {
+			m.mode = modeNormal
+			m.applyView(views[i])
+		}
+		return m, nil
+	}
+	switch key {
+	case "up", "k":
+		if m.viewCursor > 0 {
+			m.viewCursor--
+		}
+	case "down", "j":
+		if m.viewCursor < len(views)-1 {
+			m.viewCursor++
+		}
+	case "enter":
+		m.mode = modeNormal
+		if m.viewCursor < len(views) {
+			m.applyView(views[m.viewCursor])
+		}
+	case "s":
+		m.mode = modeNormal
+		if m.search == "" {
+			m.setErr(fmt.Errorf("저장할 질의가 없습니다 — / 로 먼저 걸러보세요"))
+			return m, nil
+		}
+		m.startPrompt(modeSaveView, "뷰 이름: ", "")
+		return m, textinput.Blink
+	case "d", "x":
+		if m.viewCursor < len(views) {
+			name := views[m.viewCursor].Name
+			if err := m.svc.DeleteView(name); err != nil {
+				m.setErr(err)
+				return m, nil
+			}
+			m.setStatus("뷰 삭제됨: %s", name)
+			if m.viewCursor > 0 {
+				m.viewCursor--
+			}
+		}
+	case "esc", "q", "v":
+		m.mode = modeNormal
+	}
+	return m, nil
+}
+
+// applyView runs a saved query as if it had been typed at the filter prompt.
+func (m *Model) applyView(v config.View) {
+	f, err := m.svc.Filter(v.Query)
+	if err != nil {
+		m.setErr(err)
+		return
+	}
+	m.search, m.filter = v.Query, f
+	m.cursor, m.listOffset = 0, 0
+	m.reload()
+	m.setStatus("뷰: %s (%s) — %d건", v.Name, v.Query, countTasks(m.rows))
 }
 
 // updateHelp scrolls the help screen; any other key closes it.
@@ -226,6 +293,9 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.confirmDelete()
 	case "ctrl+z":
 		m.undo()
+	case "v":
+		m.mode = modeViews
+		m.viewCursor = 0
 	case "e":
 		if p := m.currentProj(); p != nil {
 			return m, m.openProjectEditor(p)
@@ -432,6 +502,8 @@ func (m *Model) updatePrompt(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.applyStatus(domain.StatusBlocked, &domain.BlockInfo{Reason: value})
+		case modeSaveView:
+			m.saveView(value)
 		}
 		return m, nil
 	}
@@ -908,6 +980,18 @@ func (m *Model) addNote(text string) {
 	m.mutate(m.bulkLabel(ts, "메모 추가"), ts, func(t *domain.Task) (*service.Result, error) {
 		return m.svc.AddNote(t.ID, text)
 	})
+}
+
+// saveView stores the active filter under a name so tomorrow it is one key.
+func (m *Model) saveView(name string) {
+	if name == "" {
+		return
+	}
+	if err := m.svc.SaveView(name, m.search); err != nil {
+		m.setErr(err)
+		return
+	}
+	m.setStatus("뷰 저장됨: %s (%s) — v 로 불러옵니다", name, m.search)
 }
 
 // jumpNext moves the cursor onto the task worth doing next and says why.

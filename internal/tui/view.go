@@ -49,6 +49,8 @@ func (m *Model) View() string {
 	avail := m.bodyHeight()
 	var body string
 	switch {
+	case m.mode == modeViews:
+		body = m.viewsPane()
 	case m.splitActive():
 		body = m.splitBody(avail)
 	case m.detail && m.tab != tabBoard:
@@ -105,6 +107,35 @@ func (m *Model) helpView() string {
 			m.helpOffset+1, end, len(lines))
 	}
 	return strings.Join(lines[m.helpOffset:end], "\n") + "\n" + styHelp.Render(foot) + "\n"
+}
+
+// viewsPane is the saved-view picker. Views live in config.yaml; the picker is
+// what makes them worth having, since a query you have to retype is a query
+// you stop using.
+func (m *Model) viewsPane() string {
+	views := m.svc.Views()
+	var b strings.Builder
+	b.WriteString(styGroup.Render("저장된 뷰") + "\n\n")
+	if len(views) == 0 {
+		b.WriteString(styMuted.Render("  (없음)  / 로 걸러본 뒤 v → s 로 저장하세요") + "\n")
+	}
+	for i, v := range views {
+		cursor := "  "
+		if i == m.viewCursor {
+			cursor = stySelected.Render("▸ ")
+		}
+		num := " "
+		if i < 9 {
+			num = fmt.Sprint(i + 1)
+		}
+		line := fmt.Sprintf("%s %s  %s", styMuted.Render(num), pad(v.Name, 14), styMuted.Render(v.Query))
+		if i == m.viewCursor {
+			line = fmt.Sprintf("%s %s  %s", styMuted.Render(num), stySelected.Render(pad(v.Name, 14)), styMuted.Render(v.Query))
+		}
+		b.WriteString("  " + cursor + line + "\n")
+	}
+	b.WriteString("\n" + styHelp.Render("1-9 또는 enter 선택  ·  s 현재 필터 저장  ·  d 삭제  ·  esc 닫기"))
+	return b.String()
 }
 
 // wide reports whether the terminal can afford a side-by-side split.
@@ -1016,6 +1047,8 @@ func (m *Model) promptHint() string {
 		return "enter 확인  esc 취소   예: 2026-10-31 · +2w · none(해제)"
 	case modeNote:
 		return "enter 확인  esc 취소   본문 ## Note 에 시각과 함께 한 줄 추가됩니다"
+	case modeSaveView:
+		return "enter 저장  esc 취소   현재 필터를 이름으로 저장합니다 (config.yaml)"
 	case modeSearch:
 		return "입력하는 대로 걸러집니다  ·  ↑/↓ 이전 질의  ·  enter 확정  esc 취소"
 	case modeBlock:
