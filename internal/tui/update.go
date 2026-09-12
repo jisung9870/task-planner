@@ -162,6 +162,7 @@ func (m *Model) updateHelp(msg tea.KeyMsg) {
 func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "q", "ctrl+c":
+		m.saveUIState()
 		m.quit = true
 		return m, tea.Quit
 	case "?":
@@ -435,11 +436,17 @@ func (m *Model) switchTab(t tab) {
 	if t == m.tab {
 		return
 	}
+	m.tabMem[m.tab] = tabState{
+		cursor: m.cursor, listOffset: m.listOffset,
+		colCursor: m.colCursor, rowCursor: m.rowCursor,
+		projDrill: m.projDrill, projSlug: m.projSlug,
+	}
+	st := m.tabMem[t]
 	m.tab = t
-	m.cursor, m.colCursor, m.rowCursor = 0, 0, 0
-	m.listOffset = 0
+	m.cursor, m.listOffset = st.cursor, st.listOffset
+	m.colCursor, m.rowCursor = st.colCursor, st.rowCursor
+	m.projDrill, m.projSlug = st.projDrill, st.projSlug
 	m.detail, m.detailOffset = false, 0
-	m.projDrill, m.projSlug = false, ""
 	m.reload()
 }
 
@@ -834,6 +841,11 @@ func (m *Model) undo() {
 	m.reload()
 	m.selectID(id)
 	m.setStatus("되돌림: %s", label)
+}
+
+// saveUIState persists the layout choices worth restoring next launch.
+func (m *Model) saveUIState() {
+	_ = m.svc.SaveUIState(service.UIState{Tab: int(m.tab), WideDetail: m.wideDetail})
 }
 
 // selectID keeps the cursor on the same task across a reload. On a grid tab a

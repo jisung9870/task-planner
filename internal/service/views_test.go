@@ -110,3 +110,32 @@ func TestClosedOnCountsTerminalWork(t *testing.T) {
 		t.Fatalf("%+v", other)
 	}
 }
+
+func TestUIStateRoundTrips(t *testing.T) {
+	svc := newTestService(t)
+	if st := svc.LoadUIState(); st.Tab != 0 || !st.WideDetail {
+		t.Fatalf("기본값 = %+v", st)
+	}
+	if err := svc.SaveUIState(UIState{Tab: 3, WideDetail: false}); err != nil {
+		t.Fatal(err)
+	}
+	st := svc.LoadUIState()
+	if st.Tab != 3 || st.WideDetail {
+		t.Fatalf("%+v", st)
+	}
+}
+
+// The UI state file lives in the index directory precisely so that deleting it
+// costs nothing.
+func TestUIStateSurvivesIndexRebuild(t *testing.T) {
+	svc := newTestService(t)
+	if err := svc.SaveUIState(UIState{Tab: 2}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Rebuild(); err != nil {
+		t.Fatal(err)
+	}
+	if st := svc.LoadUIState(); st.Tab != 2 {
+		t.Fatalf("%+v", st)
+	}
+}

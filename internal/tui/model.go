@@ -70,6 +70,18 @@ type row struct {
 
 func (r row) selectable() bool { return r.task != nil || r.proj != nil }
 
+// tabState is what a tab remembers while another one is on screen. Resetting
+// the cursor on every switch made a round trip to Week and back lose the row
+// the user was reading.
+type tabState struct {
+	cursor     int
+	listOffset int
+	colCursor  int
+	rowCursor  int
+	projDrill  bool
+	projSlug   string
+}
+
 // detailCache holds everything the detail pane needs for one task. Without it
 // the pane re-reads the markdown file and rescans the index on every redraw -
 // once per keystroke while the cursor moves.
@@ -105,6 +117,9 @@ type Model struct {
 	// detailOffset scrolls the detail pane (J/K), which grows unbounded once
 	// notes start accumulating.
 	detailOffset int
+
+	// tabMem remembers each tab's cursor across switches.
+	tabMem [tabCount]tabState
 
 	// marked holds the ids selected for a bulk action, keyed by id so the
 	// selection survives a reload that reorders or re-buckets rows.
@@ -169,6 +184,13 @@ func New(svc *service.Service) *Model {
 	in.CharLimit = 400
 	m := &Model{svc: svc, input: in, wideDetail: true,
 		marked: map[string]bool{}, history: map[mode][]string{}}
+	// The tab and panel layout are the two things a user notices resetting on
+	// every launch; both are disposable state living next to the index.
+	ui := svc.LoadUIState()
+	if ui.Tab >= 0 && ui.Tab < tabCount {
+		m.tab = tab(ui.Tab)
+	}
+	m.wideDetail = ui.WideDetail
 	// Rolling over before the first render means the morning view is already
 	// correct instead of showing yesterday's dates.
 	if rep, err := svc.RolloverIfEnabled(); err != nil {
