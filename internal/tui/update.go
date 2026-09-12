@@ -1109,7 +1109,7 @@ func (m *Model) spanMutate(label string, ts []*domain.Task, fn func(*domain.Task
 		case t.SpanDays() == 0:
 			m.setStatus("%s 기간 해제", t.ShortID())
 		case t.HasSpan():
-			m.setStatus("%s 기간 %s~%s (%d일)", t.ShortID(), t.SpanStart(), t.SpanEnd(), t.SpanDays())
+			m.setStatus("%s 기간 %s", t.ShortID(), t.SpanLabel())
 		default:
 			d := t.SpanStart()
 			m.setStatus("%s 예정 → %s (%s)", t.ShortID(), d, d.WeekdayKO())

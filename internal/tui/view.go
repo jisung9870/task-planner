@@ -510,8 +510,7 @@ func (m *Model) renderTaskRow(i int, t *domain.Task, today domain.Date) string {
 		meta = append(meta, "~"+t.Estimate.String())
 	}
 	if t.HasSpan() {
-		meta = append(meta, fmt.Sprintf("%s~%s %d일",
-			t.SpanStart().Time().Format("01-02"), t.SpanEnd().Time().Format("01-02"), t.SpanDays()))
+		meta = append(meta, t.SpanLabelShort())
 	}
 	line := body
 	if t.Status == domain.StatusDoing && t.StartedAt != nil {
@@ -666,7 +665,7 @@ func (m *Model) boardColumn(idx int, st domain.Status, width, maxCards int, toda
 // rather than as five separate tasks.
 func (m *Model) card(t *domain.Task, day domain.Date, width int, selected bool, today domain.Date) string {
 	marker := selMark(selected, m.marked[t.ID])
-	cont := !day.IsZero() && t.HasSpan() && day.After(t.SpanStart())
+	cont := !day.IsZero() && t.MultiDay() && day.After(t.SpanStart())
 	title := t.Title
 	if cont {
 		title = "╌ " + title
@@ -682,7 +681,7 @@ func (m *Model) card(t *domain.Task, day domain.Date, width int, selected bool, 
 
 	var meta []string
 	meta = append(meta, t.ShortID())
-	if !day.IsZero() && t.HasSpan() {
+	if !day.IsZero() && t.MultiDay() {
 		// How far into the period this day is, and how much is left. On a
 		// narrow column this is the first thing to survive truncation - it is
 		// what turns repeated cards into one bar.
@@ -1073,7 +1072,7 @@ func detailMeta(t *domain.Task) string {
 	}
 	if t.HasSpan() {
 		// Two dates that bound a period read better as one fact than as two.
-		parts = append(parts, fmt.Sprintf("기간 %s~%s (%d일)", t.SpanStart(), t.SpanEnd(), t.SpanDays()))
+		parts = append(parts, "기간 "+t.SpanLabel())
 	} else {
 		if !t.Scheduled.IsZero() {
 			parts = append(parts, "예정 "+t.Scheduled.String())

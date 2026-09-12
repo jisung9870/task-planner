@@ -152,7 +152,7 @@ func setSummary(t *domain.Task) []string {
 		parts = append(parts, string(t.Priority))
 	}
 	if t.HasSpan() {
-		parts = append(parts, fmt.Sprintf("기간 %s~%s (%d일)", t.SpanStart(), t.SpanEnd(), t.SpanDays()))
+		parts = append(parts, "기간 "+t.SpanLabel())
 	} else {
 		if !t.Scheduled.IsZero() {
 			parts = append(parts, "예정 "+t.Scheduled.String())

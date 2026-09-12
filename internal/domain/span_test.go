@@ -81,6 +81,48 @@ func TestTaskSpanCoversEveryDay(t *testing.T) {
 	}
 }
 
+// 시작과 마감이 같은 날이어도 기간이다. 화면은 이것을 "하루" 로 말한다.
+func TestTaskSameDaySpan(t *testing.T) {
+	day := NewDate(2026, time.September, 14)
+	task := &Task{ID: "T-1", Title: "당일 처리", Status: StatusTodo, Scheduled: day, Due: day}
+	if !task.HasSpan() {
+		t.Error("같은 날 기간이 기간으로 잡히지 않음")
+	}
+	if task.MultiDay() {
+		t.Error("하루짜리가 여러 날로 잡힘")
+	}
+	if got := task.SpanDays(); got != 1 {
+		t.Errorf("SpanDays=%d, want 1", got)
+	}
+	if got := task.SpanLabel(); got != "2026-09-14 하루" {
+		t.Errorf("SpanLabel=%q", got)
+	}
+	if got := task.SpanLabelShort(); got != "09-14 하루" {
+		t.Errorf("SpanLabelShort=%q", got)
+	}
+
+	// 날짜가 한쪽만 있으면 기간이 아니다 - 예정일과 마감일로 따로 표시된다.
+	only := &Task{Scheduled: day}
+	if only.HasSpan() {
+		t.Error("예정일만 있는 태스크가 기간을 가짐")
+	}
+
+	// 이월이 착수일만 당기면 마감이 그보다 빠른 짝이 남는다. 그것은 기간이
+	// 아니라 늦은 마감이므로 예정·마감으로 따로 보여야 한다.
+	rolled := &Task{Scheduled: day, Due: day.AddDays(-1)}
+	if rolled.HasSpan() {
+		t.Error("마감이 착수보다 빠른데 기간으로 잡힘")
+	}
+
+	long := &Task{Scheduled: day, Due: day.AddDays(2)}
+	if got := long.SpanLabel(); got != "2026-09-14~2026-09-16 (3일)" {
+		t.Errorf("SpanLabel=%q", got)
+	}
+	if got := long.SpanLabelShort(); got != "09-14~09-16 3일" {
+		t.Errorf("SpanLabelShort=%q", got)
+	}
+}
+
 // One date is one day of work, which keeps the old single-date behaviour intact.
 func TestTaskSingleDateIsOneDay(t *testing.T) {
 	only := &Task{Scheduled: NewDate(2026, time.September, 15)}

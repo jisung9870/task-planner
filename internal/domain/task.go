@@ -167,11 +167,51 @@ func (t *Task) Span() Span {
 	return Span{Start: t.Scheduled, End: t.Due, SetStart: true, SetEnd: true}
 }
 
-// HasSpan reports whether the task occupies more than a single day - the case
-// a calendar view has to draw across columns.
+// HasSpan reports whether the task carries a 진행 기간: 착수일과 마감일이 둘 다
+// 정해진 경우다. 같은 날이어도 기간이다 - "14일에 시작해서 14일에 끝낸다" 는
+// 약속은 하루여도 약속이고, 그 약속을 화면에서 지우면 날짜를 한쪽만 넣은
+// 태스크와 구별되지 않는다.
+// 마감이 착수보다 빠르면 기간이 아니다 - 이월이 착수일만 오늘로 당기면 이런
+// 짝이 남는데, 그것을 "하루" 라고 부르면 늦은 마감이 화면에서 사라진다.
 func (t *Task) HasSpan() bool {
+	return !t.Scheduled.IsZero() && !t.Due.IsZero() && !t.Due.Before(t.Scheduled)
+}
+
+// MultiDay reports whether the period occupies more than a single day - the
+// case a calendar has to draw across columns. HasSpan asks "기간이 있는가",
+// this asks "여러 칸에 걸치는가"; 하루짜리는 앞은 참, 뒤는 거짓이다.
+func (t *Task) MultiDay() bool {
 	s, e := t.SpanStart(), t.SpanEnd()
 	return !s.IsZero() && !e.IsZero() && e.After(s)
+}
+
+// SpanLabel renders the period the way it is read aloud - 하루짜리는 날짜 하나에
+// "하루", 여러 날은 양끝과 일수. SpanLabelShort drops the year and the
+// parentheses for grid rows, which have columns only for month and day.
+func (t *Task) SpanLabel() string      { return t.spanLabel(false) }
+func (t *Task) SpanLabelShort() string { return t.spanLabel(true) }
+
+func (t *Task) spanLabel(short bool) string {
+	s, e := t.SpanStart(), t.SpanEnd()
+	if s.IsZero() || e.IsZero() {
+		return ""
+	}
+	if e.Before(s) {
+		e = s
+	}
+	day := func(d Date) string {
+		if short {
+			return d.Time().Format("01-02")
+		}
+		return d.String()
+	}
+	if !e.After(s) {
+		return day(s) + " 하루"
+	}
+	if short {
+		return fmt.Sprintf("%s~%s %d일", day(s), day(e), t.SpanDays())
+	}
+	return fmt.Sprintf("%s~%s (%d일)", day(s), day(e), t.SpanDays())
 }
 
 // SpanDays counts the period inclusively; 0 when the task has no date at all.
