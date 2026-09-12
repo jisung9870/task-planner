@@ -149,8 +149,9 @@ func newListCmd() *cobra.Command {
   tp list is:overdue
   tp list is:carried rollover>2
   tp list 파이프라인            # 제목·프로젝트·태그 부분일치
+  tp list body:타임아웃         # 메모·로그 본문까지 검색 (파일을 읽는다)
 
-  필드   status project tag priority due scheduled rollover is id
+  필드   status project tag priority due scheduled rollover is id body
   연산   : 같음   < <= > >= 비교 (날짜·숫자)
   날짜   2026-09-15  today  tomorrow  +7d  2w  1m  none  any
   is     open closed overdue duesoon blocked carried unscheduled recurring

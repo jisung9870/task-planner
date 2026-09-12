@@ -205,7 +205,7 @@ func (s *Service) Query(expr string) ([]*domain.Task, error) {
 	if err != nil {
 		return nil, err
 	}
-	return f.Apply(s.All(), s.Today(), s.Cfg.DueSoonDays), nil
+	return s.ApplyFilter(f, s.All()), nil
 }
 
 // Filter compiles an expression against today's date, for callers that want to
@@ -215,9 +215,42 @@ func (s *Service) Filter(expr string) (*query.Filter, error) {
 }
 
 // ApplyFilter narrows a list the caller already holds.
+//
+// A body search cannot run on index summaries, which carry no body. The cheap
+// terms run first and only the survivors are read from disk, so `body:에러
+// project:infra` reads one project's files rather than the whole vault.
 func (s *Service) ApplyFilter(f *query.Filter, ts []*domain.Task) []*domain.Task {
 	if f.Empty() {
 		return ts
 	}
-	return f.Apply(ts, s.Today(), s.Cfg.DueSoonDays)
+	today := s.Today()
+	if f.NeedsBody() {
+		var cand []*domain.Task
+		for _, t := range ts {
+			if f.MatchCheap(t, today, s.Cfg.DueSoonDays) {
+				cand = append(cand, t)
+			}
+		}
+		ts = s.hydrate(cand)
+	}
+	return f.Apply(ts, today, s.Cfg.DueSoonDays)
+}
+
+// hydrate re-reads full task files for summaries that lack a body. A file that
+// fails to parse is skipped rather than aborting the search: a broken file
+// should not make every query fail.
+func (s *Service) hydrate(ts []*domain.Task) []*domain.Task {
+	out := make([]*domain.Task, 0, len(ts))
+	for _, sum := range ts {
+		if sum.Body != "" || sum.Path == "" {
+			out = append(out, sum)
+			continue
+		}
+		full, err := s.vault.LoadTask(sum.Path)
+		if err != nil {
+			continue
+		}
+		out = append(out, full)
+	}
+	return out
 }

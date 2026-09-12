@@ -154,3 +154,37 @@ func TestRelativeDateUnits(t *testing.T) {
 	}
 	_ = time.Now
 }
+
+// Body terms cannot run on index summaries, so the filter has to say so and
+// still be usable for the cheap half of the expression.
+func TestBodyTermNeedsBodyAndMatchesSeparately(t *testing.T) {
+	f, err := ParseFilter("project:infra body:타임아웃", today)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !f.NeedsBody() {
+		t.Fatal("NeedsBody 가 false")
+	}
+	summary := &domain.Task{ID: "T-1", Title: "게이트웨이", Status: domain.StatusTodo, Project: "infra"}
+	if !f.MatchCheap(summary, today, 3) {
+		t.Fatal("본문 없는 요약이 cheap 조건을 통과하지 못함")
+	}
+	if f.Match(summary, today, 3) {
+		t.Fatal("본문 없이 body 조건이 매치됨")
+	}
+	full := *summary
+	full.Body = "## Note\n- 게이트웨이 타임아웃 30초로 조정\n"
+	if !f.Match(&full, today, 3) {
+		t.Fatal("본문이 있는데 매치되지 않음")
+	}
+}
+
+func TestFilterWithoutBodyTermDoesNotNeedBody(t *testing.T) {
+	f, err := ParseFilter("status:doing is:overdue", today)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.NeedsBody() {
+		t.Fatal("본문을 안 읽는 질의가 NeedsBody 로 표시됨")
+	}
+}

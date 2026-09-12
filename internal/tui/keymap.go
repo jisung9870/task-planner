@@ -44,6 +44,7 @@ const helpFull = `키
               status:doing  project:infra  tag:ops  priority:P1
               due<7d  scheduled:today  rollover>2  id:0012
               is:open|closed|overdue|duesoon|blocked|carried|unscheduled
+              body:타임아웃   메모·로그 본문 검색 (파일을 읽으므로 조금 느림)
               앞에 - 를 붙이면 부정 (-status:done)
   새로고침    r      전체 재인덱싱  R
   종료        q / ctrl+c

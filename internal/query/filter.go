@@ -20,6 +20,37 @@ func (f *Filter) String() string { return f.src }
 // Empty reports whether the filter matches everything.
 func (f *Filter) Empty() bool { return f == nil || len(f.terms) == 0 }
 
+// NeedsBody reports whether the expression reads task bodies. Index summaries
+// have none, so a caller must hydrate the candidates from disk first.
+func (f *Filter) NeedsBody() bool {
+	if f == nil {
+		return false
+	}
+	for _, tm := range f.terms {
+		if tm.needsBody {
+			return true
+		}
+	}
+	return false
+}
+
+// MatchCheap applies only the terms that read indexed fields. It narrows a list
+// before the body terms force files to be read.
+func (f *Filter) MatchCheap(t *domain.Task, today domain.Date, dueSoonDays int) bool {
+	if f.Empty() {
+		return true
+	}
+	for _, tm := range f.terms {
+		if tm.needsBody {
+			continue
+		}
+		if tm.match(t, today, dueSoonDays) == tm.negated {
+			return false
+		}
+	}
+	return true
+}
+
 // Match reports whether a task satisfies every term (terms are ANDed; OR is
 // deliberately absent - it has never been needed to answer the questions in
 // the planning doc, and adding it would require precedence rules).
@@ -49,7 +80,10 @@ func (f *Filter) Apply(ts []*domain.Task, today domain.Date, dueSoonDays int) []
 
 type term struct {
 	negated bool
-	match   func(*domain.Task, domain.Date, int) bool
+	// needsBody marks a term that reads Task.Body, which the index does not
+	// carry. The caller has to load the markdown before such a term can match.
+	needsBody bool
+	match     func(*domain.Task, domain.Date, int) bool
 }
 
 type cmp int
@@ -176,13 +210,22 @@ func parseTerm(tok string, today domain.Date) (term, error) {
 			return t, err
 		}
 		t.match = m
+	case "body", "text", "note", "본문":
+		// Body search is the one field the index cannot answer. Matching on the
+		// raw body (log lines included) is deliberate: "그 에러 문자열이 있던
+		// 태스크" is the search people actually run.
+		needle := strings.ToLower(value)
+		t.needsBody = true
+		t.match = func(task *domain.Task, _ domain.Date, _ int) bool {
+			return strings.Contains(strings.ToLower(task.Body), needle)
+		}
 	case "id":
 		want := strings.ToLower(value)
 		t.match = func(task *domain.Task, _ domain.Date, _ int) bool {
 			return strings.Contains(strings.ToLower(task.ID), want)
 		}
 	default:
-		return t, fmt.Errorf("알 수 없는 필드: %q (status|project|tag|priority|due|scheduled|rollover|is|id)", field)
+		return t, fmt.Errorf("알 수 없는 필드: %q (status|project|tag|priority|due|scheduled|rollover|is|id|body)", field)
 	}
 	return t, nil
 }
