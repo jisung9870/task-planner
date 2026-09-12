@@ -15,6 +15,8 @@ const helpFull = `키
 
   이동        ↑/k  ↓/j   g 맨 위   G 맨 아래
               ←/h  →/l   (Board·Week 에서 열 이동)
+  되돌리기    ctrl+z  직전 동작을 되돌립니다 (최근 20개, 파일 단위로 복원)
+              밖에서 파일이 바뀌었으면 덮어쓰지 않고 거부합니다
   탭          1 Today   2 Week   3 Board   4 Projects   5 All
   기간        D  진행 기간 입력
                 09-15~09-19   시작~마감

@@ -144,6 +144,7 @@ func (s *Service) CreateProject(slug, name string) (*domain.Project, error) {
 		Status: "active",
 		Body:   "## 목표\n\n## 메모\n",
 	}
+	s.captureUndo(s.vault.ProjectPath(slug), "", false)
 	if err := s.vault.SaveProject(p); err != nil {
 		return nil, err
 	}
@@ -203,6 +204,7 @@ func (s *Service) EditProject(slug string, in ProjectEditInput) (*domain.Project
 	if len(changes) == 0 {
 		return p, nil
 	}
+	s.captureUndo(p.Path, "", false)
 	if err := s.vault.SaveProject(p); err != nil {
 		return nil, err
 	}

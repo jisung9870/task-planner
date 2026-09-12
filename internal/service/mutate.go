@@ -306,6 +306,7 @@ func (s *Service) Delete(ref string) error {
 	if err != nil {
 		return err
 	}
+	s.captureUndo(t.Path, t.ID, true)
 	if err := s.vault.DeleteTask(t); err != nil {
 		return err
 	}

@@ -27,6 +27,11 @@ type Service struct {
 
 	// changes accumulates this session's mutations for one git commit.
 	changes []change
+
+	// undo is the step currently collecting pre-images; undoStack holds the
+	// finished ones, newest last.
+	undo      *undoStep
+	undoStack []*undoStep
 }
 
 // Open loads a vault and syncs its index.
@@ -192,6 +197,10 @@ func seqOf(id string) (int, bool) {
 
 // save persists a task and refreshes its index entry.
 func (s *Service) save(t *domain.Task) error {
+	// Both locations are captured before the write: a retitled task moves, and
+	// undo has to put the old file back and remove the new one.
+	s.captureUndo(t.Path, t.ID, true)
+	s.captureUndo(s.vault.TaskPath(t), t.ID, true)
 	if err := s.vault.SaveTask(t); err != nil {
 		return err
 	}

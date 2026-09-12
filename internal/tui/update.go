@@ -198,6 +198,8 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.startPrompt(modeProject, "프로젝트: ", t.Project)
 			return m, textinput.Blink
 		}
+	case "ctrl+z":
+		m.undo()
 	case "!":
 		m.jumpNext()
 	case "N":
@@ -416,7 +418,12 @@ func (m *Model) capture(title string) {
 	} else if p := m.currentProj(); p != nil {
 		in.Project, projRow = p.Slug, p.Slug
 	}
-	res, err := m.svc.AddWithResult(in)
+	var res *service.Result
+	err := m.svc.Undoable("추가", func() error {
+		var e error
+		res, e = m.svc.AddWithResult(in)
+		return e
+	})
 	if err != nil {
 		m.setErr(err)
 		return
@@ -445,7 +452,12 @@ func (m *Model) apply(t *domain.Task, to domain.Status, block *domain.BlockInfo)
 		m.startPrompt(modeBlock, "보류 사유: ", t.BlockedReason)
 		return
 	}
-	res, err := m.svc.SetStatus(t.ID, to, block)
+	var res *service.Result
+	err := m.svc.Undoable(to.Label(), func() error {
+		var e error
+		res, e = m.svc.SetStatus(t.ID, to, block)
+		return e
+	})
 	if err != nil {
 		m.setErr(err)
 		return
@@ -496,7 +508,12 @@ func (m *Model) shiftSpan(days int) {
 	if t == nil {
 		return
 	}
-	res, err := m.svc.ShiftSpan(t.ID, days)
+	var res *service.Result
+	err := m.svc.Undoable("기간 이동", func() error {
+		var e error
+		res, e = m.svc.ShiftSpan(t.ID, days)
+		return e
+	})
 	if err != nil {
 		m.setErr(err)
 		return
@@ -511,7 +528,12 @@ func (m *Model) resizeSpan(days int) {
 	if t == nil {
 		return
 	}
-	res, err := m.svc.ResizeSpan(t.ID, days)
+	var res *service.Result
+	err := m.svc.Undoable("기간 조정", func() error {
+		var e error
+		res, e = m.svc.ResizeSpan(t.ID, days)
+		return e
+	})
 	if err != nil {
 		m.setErr(err)
 		return
@@ -530,7 +552,12 @@ func (m *Model) setSpan(value string) {
 		m.setErr(err)
 		return
 	}
-	res, err := m.svc.SetSpan(t.ID, sp)
+	var res *service.Result
+	err = m.svc.Undoable("기간 설정", func() error {
+		var e error
+		res, e = m.svc.SetSpan(t.ID, sp)
+		return e
+	})
 	if err != nil {
 		m.setErr(err)
 		return
@@ -566,7 +593,12 @@ func (m *Model) setProject(value string) {
 	} else if slug != "" {
 		slug = service.ProjectSlug(slug)
 	}
-	res, err := m.svc.Edit(t.ID, service.EditInput{Project: &slug})
+	var res *service.Result
+	err := m.svc.Undoable("프로젝트 지정", func() error {
+		var e error
+		res, e = m.svc.Edit(t.ID, service.EditInput{Project: &slug})
+		return e
+	})
 	if err != nil {
 		m.setErr(err)
 		return
@@ -587,7 +619,12 @@ func (m *Model) newProject(value string) {
 		return
 	}
 	slug, name, _ := strings.Cut(value, " ")
-	p, err := m.svc.CreateProject(slug, strings.TrimSpace(name))
+	var p *domain.Project
+	err := m.svc.Undoable("프로젝트 추가", func() error {
+		var e error
+		p, e = m.svc.CreateProject(slug, strings.TrimSpace(name))
+		return e
+	})
 	if err != nil {
 		m.setErr(err)
 		return
@@ -604,7 +641,12 @@ func (m *Model) addNote(text string) {
 	if t == nil || text == "" {
 		return
 	}
-	res, err := m.svc.AddNote(t.ID, text)
+	var res *service.Result
+	err := m.svc.Undoable("메모 추가", func() error {
+		var e error
+		res, e = m.svc.AddNote(t.ID, text)
+		return e
+	})
 	if err != nil {
 		m.setErr(err)
 		return
@@ -612,6 +654,23 @@ func (m *Model) addNote(text string) {
 	m.reload()
 	m.selectID(res.Task.ID)
 	m.setStatus("%s 메모 추가", res.Task.ShortID())
+}
+
+// undo reverses the last action, leaving the cursor where it was - the point
+// of undo is to carry on from where the mistake happened.
+func (m *Model) undo() {
+	id := ""
+	if t := m.current(); t != nil {
+		id = t.ID
+	}
+	label, err := m.svc.Undo()
+	if err != nil {
+		m.setErr(err)
+		return
+	}
+	m.reload()
+	m.selectID(id)
+	m.setStatus("되돌림: %s", label)
 }
 
 // jumpNext moves the cursor onto the task worth doing next and says why.
@@ -668,7 +727,12 @@ func (m *Model) setProjectDue(value string) {
 		m.setErr(err)
 		return
 	}
-	p, err := m.svc.EditProject(r.Slug, service.ProjectEditInput{Due: &d})
+	var p *domain.Project
+	err = m.svc.Undoable("프로젝트 마감 변경", func() error {
+		var e error
+		p, e = m.svc.EditProject(r.Slug, service.ProjectEditInput{Due: &d})
+		return e
+	})
 	if err != nil {
 		m.setErr(err)
 		return
@@ -692,7 +756,12 @@ func (m *Model) cycleProject(r *service.ProjectRow) {
 		m.setErr(err)
 		return
 	}
-	p, err := m.svc.CycleProjectStatus(r.Slug)
+	var p *domain.Project
+	err := m.svc.Undoable("프로젝트 상태 변경", func() error {
+		var e error
+		p, e = m.svc.CycleProjectStatus(r.Slug)
+		return e
+	})
 	if err != nil {
 		m.setErr(err)
 		return
@@ -750,6 +819,9 @@ func (m *Model) refresh(full bool) {
 	var err error
 	if full {
 		_, err = m.svc.Rebuild()
+		// Pre-images describe files as this session last wrote them; a full
+		// rebuild is the moment to admit that may no longer hold.
+		m.svc.ResetUndo()
 	} else {
 		_, err = m.svc.Sync()
 	}

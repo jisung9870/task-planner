@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"task-planner/internal/domain"
 )
@@ -151,6 +152,88 @@ func (v *Vault) ArchivePath(t *domain.Task) string {
 	return filepath.Join(v.ArchiveDir(), fmt.Sprintf("%d-Q%d", d.Time().Year(), q), filepath.Base(v.TaskPath(t)))
 }
 
+// ArchiveTask moves a finished task out of tasks/ into archive/, returning its
+// new path. The file keeps its name and frontmatter: archiving is a move, not
+// a transformation, so `tp index --rebuild` on the archive would reproduce the
+// same tasks.
+func (v *Vault) ArchiveTask(t *domain.Task) (string, error) {
+	if t.Path == "" {
+		return "", fmt.Errorf("%s: 파일 경로를 알 수 없음", t.ID)
+	}
+	dst := v.ArchivePath(t)
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return "", err
+	}
+	if _, err := os.Stat(dst); err == nil {
+		return "", fmt.Errorf("%s: 아카이브에 같은 이름이 이미 있음", dst)
+	}
+	// tasks/ and archive/ are both inside the vault root, so a rename is a
+	// rename - no copy path to get wrong.
+	if err := os.Rename(t.Path, dst); err != nil {
+		return "", err
+	}
+	t.Path = dst
+	return dst, nil
+}
+
+// ReadRaw returns a file's bytes and whether it existed. Undo works on whole
+// files rather than on fields: a pre-image restores the log line and the
+// completion date together with whatever changed, which field-by-field
+// bookkeeping would have to reproduce by hand.
+func (v *Vault) ReadRaw(path string) ([]byte, bool) {
+	if !v.contains(path) {
+		return nil, false
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, false
+	}
+	return raw, true
+}
+
+// WriteRaw restores a file from a pre-image.
+func (v *Vault) WriteRaw(path string, raw []byte) error {
+	if !v.contains(path) {
+		return fmt.Errorf("vault 바깥 경로에는 쓸 수 없음: %s", path)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return WriteAtomic(path, raw, 0o644)
+}
+
+// RemoveFile deletes a file that a pre-image says should not exist.
+func (v *Vault) RemoveFile(path string) error {
+	if !v.contains(path) {
+		return fmt.Errorf("vault 바깥 경로는 지울 수 없음: %s", path)
+	}
+	err := os.Remove(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
+}
+
+// StatFile reports a file's modification time and whether it exists.
+func (v *Vault) StatFile(path string) (time.Time, bool) {
+	st, err := os.Stat(path)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return st.ModTime(), true
+}
+
+// contains guards the raw helpers: every path they touch comes from a task, so
+// one outside the vault means a bug, and the write would land somewhere the
+// user never agreed to.
+func (v *Vault) contains(path string) bool {
+	if path == "" {
+		return false
+	}
+	rel, err := filepath.Rel(v.root, path)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
 // LoadProjects reads every projects/<slug>/project.md.
 func (v *Vault) LoadProjects() ([]*domain.Project, error) {
 	entries, err := os.ReadDir(v.ProjectsDir())
@@ -184,30 +267,6 @@ func (v *Vault) LoadProjects() ([]*domain.Project, error) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Slug < out[j].Slug })
 	return out, nil
-}
-
-// ArchiveTask moves a finished task out of tasks/ into archive/, returning its
-// new path. The file keeps its name and frontmatter: archiving is a move, not
-// a transformation, so `tp index --rebuild` on the archive would reproduce the
-// same tasks.
-func (v *Vault) ArchiveTask(t *domain.Task) (string, error) {
-	if t.Path == "" {
-		return "", fmt.Errorf("%s: 파일 경로를 알 수 없음", t.ID)
-	}
-	dst := v.ArchivePath(t)
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return "", err
-	}
-	if _, err := os.Stat(dst); err == nil {
-		return "", fmt.Errorf("%s: 아카이브에 같은 이름이 이미 있음", dst)
-	}
-	// tasks/ and archive/ are both inside the vault root, so a rename is a
-	// rename - no copy path to get wrong.
-	if err := os.Rename(t.Path, dst); err != nil {
-		return "", err
-	}
-	t.Path = dst
-	return dst, nil
 }
 
 // ProjectPath is where a project's metadata lives.
