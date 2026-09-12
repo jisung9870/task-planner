@@ -1,7 +1,6 @@
 package mcpserver
 
 import (
-	"fmt"
 	"strings"
 
 	"task-planner/internal/domain"
@@ -62,22 +61,12 @@ func toTaskList(ts []*domain.Task, today domain.Date) []taskJSON {
 	return out
 }
 
-// parseDate accepts the forms worth exposing over MCP. Anything fancier the
-// calling model can compute itself before passing an ISO date.
+// parseDate resolves a date argument through the same domain parser the CLI
+// flags and TUI prompts use. An adapter that understood fewer date forms than
+// its siblings would just be a trap for the calling model.
 func parseDate(s string, today domain.Date) (domain.Date, error) {
-	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "":
-		return domain.Date{}, nil
-	case "today", "오늘":
-		return today, nil
-	case "tomorrow", "내일":
-		return today.AddDays(1), nil
-	case "none", "clear":
+	if strings.TrimSpace(s) == "" {
 		return domain.Date{}, nil
 	}
-	d, err := domain.ParseDate(s)
-	if err != nil {
-		return domain.Date{}, fmt.Errorf("날짜는 YYYY-MM-DD, today, tomorrow, none 중 하나: %q", s)
-	}
-	return d, nil
+	return domain.ParseDateRef(s, today)
 }

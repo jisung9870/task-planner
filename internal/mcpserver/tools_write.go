@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -47,6 +48,46 @@ type editArgs struct {
 	Estimate  *string   `json:"estimate,omitempty" jsonschema:"30m, 2h 등. 빈 문자열이면 해제"`
 	Tags      *[]string `json:"tags,omitempty" jsonschema:"전체 교체"`
 	Recur     *string   `json:"recur,omitempty" jsonschema:"반복 규칙, 빈 문자열이면 반복 중단"`
+	Span      *string   `json:"span,omitempty" jsonschema:"진행 기간을 한 번에: 2026-09-15~2026-09-19 | today~+4d | ~2026-09-19(마감만) | none(해제). scheduled/due 와 같은 필드를 쓰므로 함께 지정할 수 없음"`
+}
+
+type noteArgs struct {
+	Ref  string `json:"ref" jsonschema:"태스크 지정"`
+	Text string `json:"text" jsonschema:"추가할 메모 한 줄. 본문 ## Note 에 시각과 함께 누적됨 (덮어쓰지 않음)"`
+}
+
+type projectCreateArgs struct {
+	Slug string `json:"slug" jsonschema:"프로젝트 slug (태스크의 project 필드가 참조하는 값)"`
+	Name string `json:"name,omitempty" jsonschema:"표시 이름. 생략 시 slug"`
+}
+
+type projectSetArgs struct {
+	Slug   string  `json:"slug" jsonschema:"프로젝트 slug"`
+	Name   *string `json:"name,omitempty"`
+	Status *string `json:"status,omitempty" jsonschema:"active|paused|done"`
+	Owner  *string `json:"owner,omitempty" jsonschema:"담당. 빈 문자열이면 해제"`
+	Due    *string `json:"due,omitempty" jsonschema:"프로젝트 마감(마일스톤). none 이면 해제"`
+}
+
+type projectOut struct {
+	Slug   string `json:"slug"`
+	Name   string `json:"name"`
+	Status string `json:"status,omitempty"`
+	Owner  string `json:"owner,omitempty"`
+	Due    string `json:"due,omitempty"`
+	Path   string `json:"path"`
+}
+
+type archiveArgs struct {
+	Before string `json:"before,omitempty" jsonschema:"이 날짜 이전 완료분 (YYYY-MM-DD | -3m). days 보다 우선"`
+	Days   int    `json:"days,omitempty" jsonschema:"며칠 이전 완료분을 옮길지 (기본 30)"`
+	DryRun bool   `json:"dry_run,omitempty" jsonschema:"true 면 옮기지 않고 목록만"`
+}
+
+type archiveOut struct {
+	Cutoff string     `json:"cutoff"`
+	DryRun bool       `json:"dry_run,omitempty"`
+	Moved  []taskJSON `json:"moved"`
 }
 
 type rolloverOut struct {
@@ -132,7 +173,7 @@ func (s *Server) registerWriteTools() {
 
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "task_edit",
-		Description: "필드 수정 (부분 갱신 — 지정한 필드만 바뀜). 변경 내역이 태스크 로그에 남음.",
+		Description: "필드 수정 (부분 갱신 — 지정한 필드만 바뀜). 변경 내역이 태스크 로그에 남음. 진행 기간은 span 하나로 지정할 수 있음.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in editArgs) (*mcp.CallToolResult, mutateOut, error) {
 		defer s.begin()()
 		today := s.svc.Today()
@@ -165,6 +206,23 @@ func (s *Server) registerWriteTools() {
 			}
 			ei.Estimate = &e
 		}
+		if in.Span != nil {
+			if in.Scheduled != nil || in.Due != nil {
+				return nil, mutateOut{}, fmt.Errorf("span 은 scheduled/due 와 함께 지정할 수 없음 (같은 필드를 씀)")
+			}
+			sp, err := s.svc.ParseSpan(*in.Span)
+			if err != nil {
+				return nil, mutateOut{}, err
+			}
+			res, err := s.svc.SetSpan(in.Ref, sp)
+			if err != nil {
+				return nil, mutateOut{}, err
+			}
+			if err := s.finish(); err != nil {
+				return nil, mutateOut{}, err
+			}
+			return nil, toMutateOut(res, today), nil
+		}
 		res, err := s.svc.Edit(in.Ref, ei)
 		if err != nil {
 			return nil, mutateOut{}, err
@@ -173,6 +231,90 @@ func (s *Server) registerWriteTools() {
 			return nil, mutateOut{}, err
 		}
 		return nil, toMutateOut(res, today), nil
+	})
+
+	mcp.AddTool(s.mcp, &mcp.Tool{
+		Name:        "task_note",
+		Description: "태스크 본문에 시각이 붙은 메모 한 줄 추가. 기존 메모를 덮어쓰지 않고 쌓는다 — 통화 내용·확인한 수치처럼 나중에 근거가 될 것을 그때 적는 용도.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in noteArgs) (*mcp.CallToolResult, mutateOut, error) {
+		defer s.begin()()
+		res, err := s.svc.AddNote(in.Ref, in.Text)
+		if err != nil {
+			return nil, mutateOut{}, err
+		}
+		if err := s.finish(); err != nil {
+			return nil, mutateOut{}, err
+		}
+		return nil, toMutateOut(res, s.svc.Today()), nil
+	})
+
+	mcp.AddTool(s.mcp, &mcp.Tool{
+		Name:        "project_create",
+		Description: "프로젝트 생성 (projects/<slug>/project.md). 태스크의 project 필드는 파일 없이도 쓸 수 있지만, 상태·마감을 달려면 파일이 있어야 한다.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in projectCreateArgs) (*mcp.CallToolResult, projectOut, error) {
+		defer s.begin()()
+		p, err := s.svc.CreateProject(in.Slug, in.Name)
+		if err != nil {
+			return nil, projectOut{}, err
+		}
+		if err := s.finish(); err != nil {
+			return nil, projectOut{}, err
+		}
+		return nil, toProjectOut(p), nil
+	})
+
+	mcp.AddTool(s.mcp, &mcp.Tool{
+		Name:        "project_set",
+		Description: "프로젝트 메타 수정 (이름·상태·담당·마감). 마감을 넣으면 project_status 가 진행률과 함께 남은 날짜를 계산한다.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in projectSetArgs) (*mcp.CallToolResult, projectOut, error) {
+		defer s.begin()()
+		ei := service.ProjectEditInput{Name: in.Name, Status: in.Status, Owner: in.Owner}
+		if in.Due != nil {
+			d, err := parseDate(*in.Due, s.svc.Today())
+			if err != nil {
+				return nil, projectOut{}, err
+			}
+			ei.Due = &d
+		}
+		p, err := s.svc.EditProject(in.Slug, ei)
+		if err != nil {
+			return nil, projectOut{}, err
+		}
+		if err := s.finish(); err != nil {
+			return nil, projectOut{}, err
+		}
+		return nil, toProjectOut(p), nil
+	})
+
+	mcp.AddTool(s.mcp, &mcp.Tool{
+		Name:        "archive",
+		Description: "오래된 완료·취소 태스크를 archive/ 로 이동. 인덱스가 가벼워지는 대신 그 태스크들은 조회 대상에서 빠지므로, 먼저 dry_run 으로 확인할 것.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in archiveArgs) (*mcp.CallToolResult, archiveOut, error) {
+		defer s.begin()()
+		today := s.svc.Today()
+		cutoff, err := parseDate(in.Before, today)
+		if err != nil {
+			return nil, archiveOut{}, err
+		}
+		if cutoff.IsZero() {
+			days := in.Days
+			if days <= 0 {
+				days = 30
+			}
+			cutoff = today.AddDays(-days)
+		}
+		rep, err := s.svc.Archive(cutoff, in.DryRun)
+		if err != nil {
+			return nil, archiveOut{}, err
+		}
+		if err := s.finish(); err != nil {
+			return nil, archiveOut{}, err
+		}
+		out := archiveOut{Cutoff: cutoff.String(), DryRun: rep.DryRun}
+		for _, m := range rep.Moved {
+			out.Moved = append(out.Moved, toTaskJSON(m.Task, today))
+		}
+		return nil, out, nil
 	})
 
 	mcp.AddTool(s.mcp, &mcp.Tool{
@@ -194,6 +336,13 @@ func (s *Server) registerWriteTools() {
 		}
 		return nil, out, nil
 	})
+}
+
+func toProjectOut(p *domain.Project) projectOut {
+	return projectOut{
+		Slug: p.Slug, Name: p.Display(), Status: p.Status,
+		Owner: p.Owner, Due: p.Due.String(), Path: p.Path,
+	}
 }
 
 func toMutateOut(res *service.Result, today domain.Date) mutateOut {

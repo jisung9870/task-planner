@@ -102,7 +102,10 @@ func TestNoDeleteToolExposed(t *testing.T) {
 			t.Fatalf("삭제 도구가 노출됨: %s", tool.Name)
 		}
 	}
-	for _, want := range []string{"task_today", "task_query", "task_add", "task_status", "report_week", "summary"} {
+	for _, want := range []string{
+		"task_today", "task_query", "task_add", "task_status", "report_week", "summary",
+		"task_note", "task_next", "day_load", "project_create", "project_set", "archive",
+	} {
 		found := false
 		for _, n := range names {
 			if n == want {
@@ -215,5 +218,113 @@ func TestSummaryAndReport(t *testing.T) {
 	md := rep["markdown"].(string)
 	if !strings.Contains(md, "# 2026-W37 주간") || !strings.Contains(md, "진행") {
 		t.Fatalf("report:\n%s", md)
+	}
+}
+
+func TestNoteIsFindableByBodySearch(t *testing.T) {
+	cs, _ := newTestSession(t)
+	call(t, cs, "task_add", map[string]any{"title": "게이트웨이 점검"})
+	call(t, cs, "task_add", map[string]any{"title": "관계없는 작업"})
+	call(t, cs, "task_note", map[string]any{"ref": "#1", "text": "타임아웃을 30초로 조정함"})
+
+	out := call(t, cs, "task_get", map[string]any{"ref": "#1"})
+	if note := out["note"].(string); !strings.Contains(note, "타임아웃") {
+		t.Fatalf("note = %q", note)
+	}
+	out = call(t, cs, "task_query", map[string]any{"query": "body:타임아웃"})
+	tasks := out["tasks"].([]any)
+	if len(tasks) != 1 {
+		t.Fatalf("본문 검색 결과 = %v", tasks)
+	}
+}
+
+func TestEditSpanWritesBothDates(t *testing.T) {
+	cs, _ := newTestSession(t)
+	call(t, cs, "task_add", map[string]any{"title": "리팩터링"})
+
+	out := call(t, cs, "task_edit", map[string]any{"ref": "#1", "span": "2026-09-15~2026-09-19"})
+	task := out["task"].(map[string]any)
+	if task["scheduled"] != "2026-09-15" || task["due"] != "2026-09-19" {
+		t.Fatalf("task = %v", task)
+	}
+	// span and the individual dates write the same fields; the overlap is an
+	// error rather than a silent winner.
+	if msg := callErr(t, cs, "task_edit", map[string]any{
+		"ref": "#1", "span": "2026-09-15~2026-09-19", "due": "2026-09-30",
+	}); !strings.Contains(msg, "함께 지정할 수 없음") {
+		t.Fatalf("msg = %q", msg)
+	}
+}
+
+func TestProjectCreateSetAndStatus(t *testing.T) {
+	cs, _ := newTestSession(t)
+	out := call(t, cs, "project_create", map[string]any{"slug": "infra", "name": "인프라 개편"})
+	if out["slug"] != "infra" || out["status"] != "active" {
+		t.Fatalf("create = %v", out)
+	}
+	call(t, cs, "project_set", map[string]any{"slug": "infra", "due": "2026-10-31", "status": "paused"})
+	call(t, cs, "task_add", map[string]any{"title": "방화벽", "project": "infra", "estimate": "2h"})
+	call(t, cs, "task_add", map[string]any{"title": "라우팅", "project": "infra"})
+	call(t, cs, "task_status", map[string]any{"ref": "#2", "status": "done"})
+
+	rows := call(t, cs, "project_status", nil)["rows"].([]any)
+	row := rows[0].(map[string]any)
+	if row["project"] != "infra" || row["due"] != "2026-10-31" || row["status"] != "paused" {
+		t.Fatalf("row = %v", row)
+	}
+	if p := row["progress"].(float64); p < 0.49 || p > 0.51 {
+		t.Fatalf("progress = %v", p)
+	}
+	if row["remain_estimate"] != "2h" {
+		t.Fatalf("remain = %v", row["remain_estimate"])
+	}
+}
+
+func TestNextAndDayLoad(t *testing.T) {
+	cs, _ := newTestSession(t)
+	call(t, cs, "task_add", map[string]any{"title": "오늘 마감", "due": "today", "estimate": "2h", "scheduled": "today"})
+	call(t, cs, "task_add", map[string]any{"title": "언젠가"})
+
+	rows := call(t, cs, "task_next", map[string]any{"limit": 1})["rows"].([]any)
+	if len(rows) != 1 {
+		t.Fatalf("next = %v", rows)
+	}
+	first := rows[0].(map[string]any)
+	if first["task"].(map[string]any)["title"] != "오늘 마감" {
+		t.Fatalf("추천 = %v", first)
+	}
+	if reason := first["reason"].(string); !strings.Contains(reason, "오늘 마감") {
+		t.Fatalf("reason = %q", reason)
+	}
+
+	loads := call(t, cs, "day_load", map[string]any{})["rows"].([]any)
+	day := loads[0].(map[string]any)
+	if day["planned"] != "2h" || day["estimated"].(float64) != 1 {
+		t.Fatalf("load = %v", day)
+	}
+	if week := call(t, cs, "day_load", map[string]any{"week": true})["rows"].([]any); len(week) != 7 {
+		t.Fatalf("주간 load = %d일", len(week))
+	}
+}
+
+func TestArchiveDryRunReportsWithoutMoving(t *testing.T) {
+	cs, svc := newTestSession(t)
+	call(t, cs, "task_add", map[string]any{"title": "끝난 일"})
+	call(t, cs, "task_status", map[string]any{"ref": "#1", "status": "done"})
+
+	// cutoff 를 내일로 두면 오늘 완료분이 대상에 들어온다.
+	out := call(t, cs, "archive", map[string]any{"before": "tomorrow", "dry_run": true})
+	if len(out["moved"].([]any)) != 1 || out["dry_run"] != true {
+		t.Fatalf("archive = %v", out)
+	}
+	if _, err := svc.Resolve("#1"); err != nil {
+		t.Fatalf("dry-run 인데 인덱스에서 빠짐: %v", err)
+	}
+	out = call(t, cs, "archive", map[string]any{"before": "tomorrow"})
+	if len(out["moved"].([]any)) != 1 {
+		t.Fatalf("archive = %v", out)
+	}
+	if _, err := svc.Resolve("#1"); err == nil {
+		t.Fatal("아카이브 후에도 인덱스에 남아 있음")
 	}
 }
