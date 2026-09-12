@@ -35,6 +35,9 @@ func (m *Model) View() string {
 	if m.mode == modeHelp {
 		return m.helpView()
 	}
+	// Hit regions describe this frame only; a click is always answered against
+	// what is currently on screen.
+	m.hits = m.hits[:0]
 
 	var b strings.Builder
 	b.WriteString(m.header())
@@ -236,10 +239,22 @@ func (m *Model) header() string {
 	return left + strings.Repeat(" ", gap) + right
 }
 
+// tabRow is the screen line the tab bar occupies; bodyTop is the first line of
+// the body. Both are fixed by View()'s header, so a click can be resolved
+// without re-deriving the layout.
+const (
+	tabRow  = 2
+	bodyTop = 4
+)
+
 func (m *Model) tabs() string {
 	parts := make([]string, 0, len(tabNames)+1)
+	x := 0
 	for i, name := range tabNames {
 		label := fmt.Sprintf("[%d]%s", i+1, name)
+		w := lipgloss.Width(label)
+		m.hits = append(m.hits, hit{y: tabRow, x0: x, x1: x + w, kind: hitTab, a: i})
+		x += w + 2
 		if tab(i) == m.tab {
 			parts = append(parts, styTabActive.Render(label))
 		} else {
@@ -345,11 +360,17 @@ func (m *Model) list(avail int) string {
 	start, end, above, below := m.viewport(avail)
 
 	var b strings.Builder
+	y := bodyTop
 	if above > 0 {
 		b.WriteString(styMuted.Render(fmt.Sprintf("  ↑ %d줄", above)) + "\n")
+		y++
 	}
 	for i := start; i < end; i++ {
 		r := m.rows[i]
+		if r.selectable() {
+			m.hits = append(m.hits, hit{y: y, x0: 0, x1: m.innerWidth(), kind: hitRow, a: i})
+		}
+		y++
 		switch {
 		case r.proj != nil:
 			b.WriteString(m.renderProjRow(i, r))
@@ -539,7 +560,7 @@ func (m *Model) board(avail int) string {
 	}
 	panes := make([]string, len(boardColumns))
 	for i, st := range boardColumns {
-		panes[i] = m.boardColumn(i, st, colWidth, maxCards, today)
+		panes[i] = m.boardColumn(i, st, colWidth, maxCards, today, i*(colWidth+2))
 	}
 	out := lipgloss.JoinHorizontal(lipgloss.Top, panes...)
 	return strings.TrimRight(out, "\n") + "\n" + m.boardFooter(today)
@@ -548,10 +569,14 @@ func (m *Model) board(avail int) string {
 // boardStacked renders the same lanes one under another for narrow terminals.
 func (m *Model) boardStacked(width int, today domain.Date) string {
 	var b strings.Builder
+	y := bodyTop
 	for i, st := range boardColumns {
 		b.WriteString(styGroup.Render(fmt.Sprintf("▾ %s (%d)", st.Label(), len(m.cols[i]))) + "\n")
+		y++
 		for r, t := range m.cols[i] {
 			b.WriteString(m.card(t, domain.Date{}, width, i == m.colCursor && r == m.rowCursor, today) + "\n")
+			m.hitCard(y, 0, width, i, r)
+			y += 2
 		}
 	}
 	return b.String() + m.boardFooter(today)
@@ -559,17 +584,20 @@ func (m *Model) boardStacked(width int, today domain.Date) string {
 
 // boardColumn renders one lane, windowed around the cursor when the lane holds
 // more cards than fit.
-func (m *Model) boardColumn(idx int, st domain.Status, width, maxCards int, today domain.Date) string {
+func (m *Model) boardColumn(idx int, st domain.Status, width, maxCards int, today domain.Date, x0 int) string {
 	cards := m.cols[idx]
 	head := fmt.Sprintf("%s %s (%d)", st.Glyph(), st.Label(), len(cards))
 	if st == domain.StatusDoing && m.svc.Cfg.WIPLimit > 0 && len(cards) > m.svc.Cfg.WIPLimit {
 		head += " ⚠"
 	}
 	var b strings.Builder
+	y := bodyTop
 	b.WriteString(styGroup.Render(truncate(head, width)) + "\n")
 	b.WriteString(styRule.Render(strings.Repeat("─", width)) + "\n")
+	y += 2
 	if len(cards) == 0 {
 		b.WriteString(styMuted.Render(truncate("  (없음)", width)) + "\n")
+		y++
 	}
 	start := 0
 	if idx == m.colCursor && m.rowCursor >= maxCards {
@@ -581,10 +609,13 @@ func (m *Model) boardColumn(idx int, st domain.Status, width, maxCards int, toda
 	}
 	if start > 0 {
 		b.WriteString(styMuted.Render(fmt.Sprintf("  ↑ %d건", start)) + "\n")
+		y++
 	}
 	for r := start; r < end; r++ {
 		selected := idx == m.colCursor && r == m.rowCursor
 		b.WriteString(m.card(cards[r], domain.Date{}, width, selected, today) + "\n")
+		m.hitCard(y, x0, width, idx, r)
+		y += 2
 	}
 	if end < len(cards) {
 		b.WriteString(styMuted.Render(fmt.Sprintf("  ↓ %d건", len(cards)-end)) + "\n")
@@ -652,6 +683,14 @@ func (m *Model) boardFooter(today domain.Date) string {
 		c.Done, c.Cancelled))
 }
 
+// hitCard records the two screen lines a card occupies, so a click selects the
+// same card the eye did.
+func (m *Model) hitCard(y, x0, width, col, row int) {
+	m.hits = append(m.hits,
+		hit{y: y, x0: x0, x1: x0 + width, kind: hitCard, a: col, b: row},
+		hit{y: y + 1, x0: x0, x1: x0 + width, kind: hitCard, a: col, b: row})
+}
+
 // truncate cuts to a display width, appending an ellipsis when it had to cut.
 // ANSI-aware: styled input keeps its escape sequences intact.
 func truncate(s string, w int) string {
@@ -689,30 +728,33 @@ func (m *Model) weekGrid(avail int) string {
 
 	panes := make([]string, 7)
 	for i := range m.weekDays {
-		panes[i] = m.weekColumn(i, colW, maxCards, today)
+		panes[i] = m.weekColumn(i, colW, maxCards, today, i*(colW+2))
 	}
 	out := strings.TrimRight(lipgloss.JoinHorizontal(lipgloss.Top, panes...), "\n")
 	if laneH > 0 {
-		out += "\n" + m.weekLane(lane, width, laneMax)
+		out += "\n" + m.weekLane(lane, width, laneMax, bodyTop+lipgloss.Height(out))
 	}
 	return out
 }
 
 // weekColumn renders one day.
-func (m *Model) weekColumn(idx, width, maxCards int, today domain.Date) string {
+func (m *Model) weekColumn(idx, width, maxCards int, today domain.Date, x0 int) string {
 	d := m.weekDays[idx]
 	cards := m.cols[idx]
 	head := fmt.Sprintf("%s %s", d.WeekdayKO(), d.Time().Format("01-02"))
 	if len(cards) > 0 {
 		head += fmt.Sprintf(" %d", len(cards))
 	}
+
 	var b strings.Builder
+	y := bodyTop
 	if d.Equal(today) {
 		b.WriteString(styTabActive.Render(truncate("▾ "+head, width)) + "\n")
 	} else {
 		b.WriteString(styGroup.Render(truncate("  "+head, width)) + "\n")
 	}
 	b.WriteString(m.weekRule(idx, width) + "\n")
+	y += 2
 	start := 0
 	if idx == m.colCursor && m.rowCursor >= maxCards {
 		start = m.rowCursor - maxCards + 1
@@ -723,9 +765,12 @@ func (m *Model) weekColumn(idx, width, maxCards int, today domain.Date) string {
 	}
 	if start > 0 {
 		b.WriteString(styMuted.Render(fmt.Sprintf(" ↑%d", start)) + "\n")
+		y++
 	}
 	for r := start; r < end; r++ {
 		b.WriteString(m.card(cards[r], d, width, idx == m.colCursor && r == m.rowCursor, today) + "\n")
+		m.hitCard(y, x0, width, idx, r)
+		y += 2
 	}
 	if end < len(cards) {
 		b.WriteString(styMuted.Render(fmt.Sprintf(" ↓%d", len(cards)-end)) + "\n")
@@ -771,7 +816,7 @@ func compactHours(d domain.Duration) string {
 
 // weekLane renders the 미배정 strip: work that belongs to the week but has no
 // day yet. `]` pulls a task onto today.
-func (m *Model) weekLane(lane []*domain.Task, width, laneMax int) string {
+func (m *Model) weekLane(lane []*domain.Task, width, laneMax, y int) string {
 	today := m.svc.Today()
 	var b strings.Builder
 	head := fmt.Sprintf("미배정 (%d)", len(lane))
@@ -784,8 +829,12 @@ func (m *Model) weekLane(lane []*domain.Task, width, laneMax int) string {
 	if m.colCursor == weekLaneUnassigned && m.rowCursor >= laneMax {
 		start = m.rowCursor - laneMax + 1
 	}
+	y++ // the lane heading
 	end := min(start+laneMax, len(lane))
 	for r := start; r < end; r++ {
+		// A lane entry is a single line, not a two-line card.
+		m.hits = append(m.hits, hit{y: y, x0: 0, x1: width, kind: hitCard, a: weekLaneUnassigned, b: r})
+		y++
 		t := lane[r]
 		cursor := selMark(m.colCursor == weekLaneUnassigned && r == m.rowCursor, m.marked[t.ID])
 		line := fmt.Sprintf("%s %s %s", t.Status.Glyph(), pad(t.ShortID(), 5), t.Title)
@@ -806,6 +855,7 @@ func (m *Model) weekLane(lane []*domain.Task, width, laneMax int) string {
 // weekStacked lists the days vertically for narrow terminals.
 func (m *Model) weekStacked(width int, today domain.Date) string {
 	var b strings.Builder
+	y := bodyTop
 	for i, d := range m.weekDays {
 		if len(m.cols[i]) == 0 && !d.Equal(today) {
 			continue // an empty past/future day is noise in a narrow screen
@@ -815,12 +865,15 @@ func (m *Model) weekStacked(width int, today domain.Date) string {
 			mark = "▾ "
 		}
 		b.WriteString(styGroup.Render(fmt.Sprintf("%s%s %s (%d)", mark, d.WeekdayKO(), d.Time().Format("01-02"), len(m.cols[i]))) + "\n")
+		y++
 		for r, t := range m.cols[i] {
 			b.WriteString(m.card(t, d, width, i == m.colCursor && r == m.rowCursor, today) + "\n")
+			m.hitCard(y, 0, width, i, r)
+			y += 2
 		}
 	}
 	if lane := m.cols[weekLaneUnassigned]; len(lane) > 0 {
-		b.WriteString(m.weekLane(lane, width, len(lane)))
+		b.WriteString(m.weekLane(lane, width, len(lane), bodyTop+lipgloss.Height(b.String())))
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

@@ -13,7 +13,7 @@ func helpLines() []string { return strings.Split(strings.TrimRight(helpFull, "\n
 // helpFull is shown by ?.
 const helpFull = `키
 
-  이동        ↑/k  ↓/j   g 맨 위   G 맨 아래
+  이동        ↑/k  ↓/j   g 맨 위   G 맨 아래   마우스 클릭·휠도 됩니다
               ←/h  →/l   (Board·Week 에서 열 이동)
               H/L        선택한 카드를 옆 열로 (Board=상태, Week=날짜)
               J/K        상세 패널 스크롤

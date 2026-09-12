@@ -19,7 +19,9 @@ func Run(svc *service.Service) error {
 		m.SetWatcher(w)
 		defer w.Close()
 	}
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	// Mouse support is additive: every key binding keeps working, and clicking
+	// a card beats pressing h/l six times to reach Thursday.
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	_, err := p.Run()
 	return err
 }

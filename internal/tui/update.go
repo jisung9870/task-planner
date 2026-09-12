@@ -41,6 +41,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Only the elapsed column depends on wall-clock time, so the tick just
 		// triggers a redraw.
 		return m, tickCmd()
+	case tea.MouseMsg:
+		m.updateMouse(msg)
+		return m, nil
 	case tea.KeyMsg:
 		switch {
 		case m.mode.prompting():
@@ -58,6 +61,56 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// updateMouse turns clicks and wheel into the same moves the keyboard makes.
+//
+// Hit regions are recorded by View() while it draws, rather than recomputed
+// here from the layout maths: the grid is built with lipgloss joins, and a
+// second implementation of where things landed would drift from the first.
+func (m *Model) updateMouse(msg tea.MouseMsg) {
+	if m.mode != modeNormal {
+		return
+	}
+	switch msg.Button {
+	case tea.MouseButtonWheelUp:
+		m.moveSelection(-1)
+		return
+	case tea.MouseButtonWheelDown:
+		m.moveSelection(1)
+		return
+	}
+	if msg.Action != tea.MouseActionPress || msg.Button != tea.MouseButtonLeft {
+		return
+	}
+	for _, h := range m.hits {
+		if msg.Y != h.y || msg.X < h.x0 || msg.X >= h.x1 {
+			continue
+		}
+		switch h.kind {
+		case hitTab:
+			m.switchTab(tab(h.a))
+		case hitRow:
+			m.cursor = h.a
+			m.detailOffset = 0
+		case hitCard:
+			m.colCursor, m.rowCursor = h.a, h.b
+			m.detailOffset = 0
+		}
+		return
+	}
+}
+
+// moveSelection is one step of cursor movement in whichever model the current
+// tab uses.
+func (m *Model) moveSelection(delta int) {
+	if m.gridTab() {
+		m.rowCursor += delta
+		m.clampBoard()
+	} else {
+		m.moveCursor(delta)
+	}
+	m.detailOffset = 0
 }
 
 // updateConfirm answers a y/n question. Anything that is not a yes is a no:
@@ -179,19 +232,9 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "?":
 		m.mode = modeHelp
 	case "up", "k":
-		if m.gridTab() {
-			m.rowCursor--
-			m.clampBoard()
-		} else {
-			m.moveCursor(-1)
-		}
+		m.moveSelection(-1)
 	case "down", "j":
-		if m.gridTab() {
-			m.rowCursor++
-			m.clampBoard()
-		} else {
-			m.moveCursor(1)
-		}
+		m.moveSelection(1)
 	case "J":
 		m.detailOffset++
 	case "K":
@@ -1154,7 +1197,8 @@ func (m *Model) openProjectEditor(r *service.ProjectRow) tea.Cmd {
 		m.setErr(err)
 		return nil
 	}
-	cmd, err := editor.Command(m.svc.Cfg, p.Path)
+	path := p.Path
+	cmd, err := editor.Command(m.svc.Cfg, path)
 	if err != nil {
 		m.setErr(err)
 		return nil

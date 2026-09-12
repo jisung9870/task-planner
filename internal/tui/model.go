@@ -93,6 +93,24 @@ type detailCache struct {
 	blocking []*domain.Task
 }
 
+// hitKind is what a recorded screen region points at.
+type hitKind int
+
+const (
+	hitTab hitKind = iota
+	hitRow
+	hitCard
+)
+
+// hit is one clickable region of the last frame: a single screen line and a
+// column range, plus the indices the click selects.
+type hit struct {
+	y      int
+	x0, x1 int
+	kind   hitKind
+	a, b   int
+}
+
 // Model is the bubbletea state.
 type Model struct {
 	svc *service.Service
@@ -151,6 +169,9 @@ type Model struct {
 	history   map[mode][]string
 	histPos   int
 	histDraft string
+
+	// hits are the clickable regions recorded by the last render.
+	hits []hit
 
 	// viewCursor is the selection in the saved-view picker.
 	viewCursor int
