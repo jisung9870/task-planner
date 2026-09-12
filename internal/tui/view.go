@@ -52,6 +52,8 @@ func (m *Model) View() string {
 	avail := m.bodyHeight()
 	var body string
 	switch {
+	case m.mode == modeForm:
+		body = m.formPane()
 	case m.mode == modeViews:
 		body = m.viewsPane()
 	case m.splitActive():
@@ -138,6 +140,39 @@ func (m *Model) viewsPane() string {
 		b.WriteString("  " + cursor + line + "\n")
 	}
 	b.WriteString("\n" + styHelp.Render("1-9 또는 enter 선택  ·  s 현재 필터 저장  ·  d 삭제  ·  esc 닫기"))
+	return b.String()
+}
+
+// formHints show what each empty field accepts, in place of its value.
+var formHints = [formCount]string{
+	"(필수) 짧은 명사구 한 줄",
+	"(선택) 본문 ## Note 로 들어갑니다",
+	"(선택) 09-15~09-19 · today~+4d · 09-15",
+	"(선택) 쉼표로 구분 (ops, backend)",
+}
+
+// formPane is the Jira-style capture: every field on one screen, the focused
+// one live. a 의 3초 캡처를 대체하지 않는다 — 필드를 이미 아는 순간을 위한
+// 화면이다.
+func (m *Model) formPane() string {
+	var b strings.Builder
+	b.WriteString(styGroup.Render("새 태스크") + "\n\n")
+	if m.projDrill && m.projSlug != "" {
+		b.WriteString("  " + styMuted.Render("프로젝트: "+m.projSlug) + "\n\n")
+	}
+	for i, label := range formLabels {
+		if i == m.formFocus {
+			b.WriteString(fmt.Sprintf("  %s%s  %s\n", stySelected.Render("▸ "),
+				stySelected.Render(pad(label, 4)), m.input.View()))
+			continue
+		}
+		val := m.formVals[i]
+		if val == "" {
+			val = styMuted.Render(formHints[i])
+		}
+		b.WriteString(fmt.Sprintf("    %s  %s\n", pad(label, 4), val))
+	}
+	b.WriteString("\n" + styHelp.Render("enter 다음 필드 (마지막에서 저장)  ·  tab/↑↓ 이동  ·  ctrl+s 바로 저장  ·  esc 취소"))
 	return b.String()
 }
 

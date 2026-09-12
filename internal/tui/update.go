@@ -51,6 +51,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case m.mode == modeHelp:
 			m.updateHelp(msg)
 			return m, nil
+		case m.mode == modeForm:
+			return m.updateForm(msg)
 		case m.mode == modeViews:
 			return m.updateViews(msg)
 		case m.mode == modeConfirm:
@@ -316,6 +318,9 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.refresh(true)
 	case "a":
 		m.startPrompt(modeCapture, "새 태스크: ", "")
+		return m, textinput.Blink
+	case "A":
+		m.startForm()
 		return m, textinput.Blink
 	case "/":
 		m.startPrompt(modeSearch, "필터: ", m.search)
@@ -672,6 +677,13 @@ func (m *Model) capture(title string) {
 	if title == "" {
 		return
 	}
+	in, projRow := m.captureInput(title)
+	m.addTask(in, projRow)
+}
+
+// captureInput derives the defaults a new task inherits from where it was
+// captured; projRow is the project row the cursor should stay on.
+func (m *Model) captureInput(title string) (service.AddInput, string) {
 	in := service.AddInput{Title: title}
 	// A task captured from the Today view is meant for today; from a project
 	// view it belongs to that project. Both save a follow-up edit.
@@ -693,6 +705,11 @@ func (m *Model) capture(title string) {
 	} else if p := m.currentProj(); p != nil {
 		in.Project, projRow = p.Slug, p.Slug
 	}
+	return in, projRow
+}
+
+// addTask files the task and keeps the cursor somewhere sensible.
+func (m *Model) addTask(in service.AddInput, projRow string) {
 	var res *service.Result
 	err := m.svc.Undoable("추가", func() error {
 		var e error
@@ -714,6 +731,98 @@ func (m *Model) capture(title string) {
 	for _, w := range res.Warnings {
 		m.status += "  · " + w
 	}
+}
+
+// startForm opens the multi-field capture (A): Jira 식 제목/설명/기간/태그를
+// 한 화면에서 받는다. 캡처 문맥(탭·프로젝트 드릴인)은 a 와 똑같이 적용된다.
+func (m *Model) startForm() {
+	m.mode = modeForm
+	m.formVals = [formCount]string{}
+	m.formFocus = formTitle
+	m.input.Prompt = ""
+	m.input.SetValue("")
+	m.input.Focus()
+}
+
+// updateForm drives the form: enter walks the fields and submits at the end,
+// ctrl+s submits from anywhere, esc discards.
+func (m *Model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.mode = modeNormal
+		m.input.Blur()
+		m.setStatus("취소됨")
+		return m, nil
+	case "enter":
+		m.formVals[m.formFocus] = m.input.Value()
+		if m.formFocus == formCount-1 {
+			m.submitForm()
+		} else {
+			m.formSetFocus(m.formFocus + 1)
+		}
+		return m, nil
+	case "tab", "down":
+		m.formVals[m.formFocus] = m.input.Value()
+		m.formSetFocus((m.formFocus + 1) % formCount)
+		return m, nil
+	case "shift+tab", "up":
+		m.formVals[m.formFocus] = m.input.Value()
+		m.formSetFocus((m.formFocus + formCount - 1) % formCount)
+		return m, nil
+	case "ctrl+s":
+		m.formVals[m.formFocus] = m.input.Value()
+		m.submitForm()
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	return m, cmd
+}
+
+func (m *Model) formSetFocus(i int) {
+	m.formFocus = i
+	m.input.SetValue(m.formVals[i])
+	m.input.CursorEnd()
+}
+
+// submitForm validates and files the task. A bad field puts the focus back on
+// it instead of throwing the rest of the input away.
+func (m *Model) submitForm() {
+	title := strings.TrimSpace(m.formVals[formTitle])
+	if title == "" {
+		m.formSetFocus(formTitle)
+		m.setErr(fmt.Errorf("제목이 비어 있음"))
+		return
+	}
+	in, projRow := m.captureInput(title)
+	in.Note = strings.TrimSpace(m.formVals[formDesc])
+	if v := strings.TrimSpace(m.formVals[formSpan]); v != "" {
+		sp, err := m.svc.ParseSpan(v)
+		if err != nil {
+			m.formSetFocus(formSpan)
+			m.setErr(err)
+			return
+		}
+		// A typed period wins over the tab's contextual default.
+		in.Scheduled, in.Due = sp.Start, sp.End
+	}
+	if tags := splitTags(m.formVals[formTags]); len(tags) > 0 {
+		in.Tags = tags
+	}
+	m.mode = modeNormal
+	m.input.Blur()
+	m.addTask(in, projRow)
+}
+
+// splitTags accepts "ops, backend" and "#ops backend" alike.
+func splitTags(s string) []string {
+	var out []string
+	for _, f := range strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' }) {
+		if f = strings.TrimPrefix(strings.TrimSpace(f), "#"); f != "" {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 // applyNext cycles each target through its own next status; a bulk cycle over

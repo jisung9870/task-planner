@@ -47,6 +47,7 @@ const (
 	modeNote
 	modeSaveView
 	modeViews
+	modeForm
 	modeConfirm
 	modeHelp
 )
@@ -69,6 +70,19 @@ type row struct {
 }
 
 func (r row) selectable() bool { return r.task != nil || r.proj != nil }
+
+// Form fields, in the order the form walks them. The quick capture (a) stays
+// the 3-second path; the form exists for the moment the fields are already
+// known, when four follow-up prompts would be four chances to forget one.
+const (
+	formTitle = iota
+	formDesc
+	formSpan
+	formTags
+	formCount
+)
+
+var formLabels = [formCount]string{"제목", "설명", "기간", "태그"}
 
 // tabState is what a tab remembers while another one is on screen. Resetting
 // the cursor on every switch made a round trip to Week and back lose the row
@@ -175,6 +189,10 @@ type Model struct {
 
 	// viewCursor is the selection in the saved-view picker.
 	viewCursor int
+	// formVals keeps every form field while the focus moves between them, so
+	// tabbing back does not lose what was typed.
+	formVals  [formCount]string
+	formFocus int
 	// confirm holds the action a y/n prompt will run when answered.
 	confirm       func()
 	confirmPrompt string

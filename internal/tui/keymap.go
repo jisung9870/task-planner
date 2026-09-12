@@ -24,7 +24,8 @@ const helpFull = `키
   뷰          v  저장된 질의 목록 (1-9 로 즉시 적용)
               v → s  현재 필터를 이름 붙여 저장 (config.yaml 의 views)
   탭          1 Today   2 Week   3 Board   4 Projects   5 All
-  추가        a  (한 줄 캡처 — 나머지 필드는 나중에)
+  추가        a  한 줄 캡처 — 나머지 필드는 나중에
+              A  폼 캡처 — 제목·설명·기간·태그를 한 화면에서 (Jira 식)
   상태        space 순환   s 진행중   d 완료   b 보류   x 취소   u 대기중
               S 반복 회차 건너뛰기   X 삭제 (확인 후, ctrl+z 로 복구)
   기간        D  진행 기간 입력
