@@ -47,7 +47,8 @@ const helpFull = `키
   상세        넓은 화면: 우측 고정 패널 (enter 로 접기/펼치기)
               좁은 화면: enter 로 하단 패널 토글
   편집        e  (외부 편집기 — 저장하고 나오면 자동 반영)
-  필터        /  질의식 또는 자유 단어
+  필터        /  질의식 또는 자유 단어 — 입력하는 대로 걸러집니다
+              ↑/↓ 로 이전에 쓴 질의를 불러옵니다
               status:doing  project:infra  tag:ops  priority:P1
               due<7d  scheduled:today  rollover>2  id:0012
               is:open|closed|overdue|duesoon|blocked|carried|unscheduled

@@ -112,6 +112,14 @@ type Model struct {
 	input  textinput.Model
 	search string
 	filter *query.Filter
+	// pendingFilter is applied while the search prompt is being typed; the
+	// previous one is kept so esc restores the view instead of clearing it.
+	prevSearch string
+	prevFilter *query.Filter
+	// history is the per-prompt recall list walked with ↑/↓.
+	history   map[mode][]string
+	histPos   int
+	histDraft string
 
 	// confirm holds the action a y/n prompt will run when answered.
 	confirm       func()
@@ -134,7 +142,7 @@ func New(svc *service.Service) *Model {
 	in.PromptStyle = styPrompt
 	in.CharLimit = 400
 	m := &Model{svc: svc, input: in, wideDetail: true,
-		marked: map[string]bool{}}
+		marked: map[string]bool{}, history: map[mode][]string{}}
 	// Rolling over before the first render means the morning view is already
 	// correct instead of showing yesterday's dates.
 	if rep, err := svc.RolloverIfEnabled(); err != nil {

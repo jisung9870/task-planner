@@ -1016,6 +1016,8 @@ func (m *Model) promptHint() string {
 		return "enter 확인  esc 취소   예: 2026-10-31 · +2w · none(해제)"
 	case modeNote:
 		return "enter 확인  esc 취소   본문 ## Note 에 시각과 함께 한 줄 추가됩니다"
+	case modeSearch:
+		return "입력하는 대로 걸러집니다  ·  ↑/↓ 이전 질의  ·  enter 확정  esc 취소"
 	case modeBlock:
 		return "enter 확인  esc 취소   사유 없이는 보류되지 않습니다"
 	}

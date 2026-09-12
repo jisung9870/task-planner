@@ -373,36 +373,49 @@ func (m *Model) startPrompt(md mode, prompt, initial string) {
 	m.input.SetValue(initial)
 	m.input.CursorEnd()
 	m.input.Focus()
+	m.histPos, m.histDraft = len(m.history[md]), initial
+	if md == modeSearch {
+		// Keep what the view was showing so esc restores it rather than
+		// leaving the half-typed filter applied.
+		m.prevSearch, m.prevFilter = m.search, m.filter
+	}
 }
 
 func (m *Model) updatePrompt(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
+		md := m.mode
 		m.mode = modeNormal
 		m.input.Blur()
+		if md == modeSearch {
+			// Restoring silently would leave the status line describing the
+			// abandoned query, which reads as if it were still applied.
+			m.search, m.filter = m.prevSearch, m.prevFilter
+			m.reload()
+			if m.search == "" {
+				m.setStatus("필터 해제")
+			} else {
+				m.setStatus("필터: %s — %d건", m.search, m.countMatches())
+			}
+		}
+		return m, nil
+	case "up":
+		m.recall(-1)
+		return m, nil
+	case "down":
+		m.recall(1)
 		return m, nil
 	case "enter":
 		value := strings.TrimSpace(m.input.Value())
 		md := m.mode
 		m.mode = modeNormal
 		m.input.Blur()
+		m.remember(md, value)
 		switch md {
 		case modeCapture:
 			m.capture(value)
 		case modeSearch:
-			f, err := m.svc.Filter(value)
-			if err != nil {
-				m.setErr(err)
-				return m, nil
-			}
-			m.search, m.filter = value, f
-			m.cursor = 0
-			m.reload()
-			if value == "" {
-				m.setStatus("필터 해제")
-			} else {
-				m.setStatus("필터: %s — %d건", value, countTasks(m.rows))
-			}
+			m.applySearch(value, true)
 		case modeSpan:
 			m.setSpan(value)
 		case modeProject:
@@ -424,7 +437,96 @@ func (m *Model) updatePrompt(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
+	if m.mode == modeSearch {
+		// Filter as it is typed: a query you cannot see the result of is a
+		// query you have to run twice.
+		m.applySearch(strings.TrimSpace(m.input.Value()), false)
+	}
 	return m, cmd
+}
+
+// applySearch compiles and applies a filter expression. committed is false
+// while the user is still typing, which is when a body search is deferred -
+// it reads files, and doing that per keystroke would stutter.
+func (m *Model) applySearch(value string, committed bool) {
+	f, err := m.svc.Filter(value)
+	if err != nil {
+		if committed {
+			m.setErr(err)
+		}
+		return
+	}
+	if !committed && f.NeedsBody() {
+		m.setStatus("본문 검색은 enter 를 눌러야 실행됩니다")
+		return
+	}
+	m.search, m.filter = value, f
+	m.cursor, m.listOffset = 0, 0
+	m.reload()
+	switch {
+	case value == "":
+		m.setStatus("필터 해제")
+	default:
+		m.setStatus("필터: %s — %d건", value, m.countMatches())
+	}
+}
+
+// countMatches counts tasks in the current view, whichever shape it has.
+func (m *Model) countMatches() int {
+	if m.gridTab() {
+		n := 0
+		for _, col := range m.cols {
+			n += len(col)
+		}
+		return n
+	}
+	return countTasks(m.rows)
+}
+
+// remember appends to the prompt's recall list, newest last and no immediate
+// repeats.
+func (m *Model) remember(md mode, value string) {
+	if value == "" || md == modeConfirm {
+		return
+	}
+	h := m.history[md]
+	if len(h) > 0 && h[len(h)-1] == value {
+		return
+	}
+	h = append(h, value)
+	if len(h) > 30 {
+		h = h[1:]
+	}
+	m.history[md] = h
+}
+
+// recall walks the prompt's history with ↑/↓, keeping the half-typed line at
+// the bottom of the walk.
+func (m *Model) recall(delta int) {
+	h := m.history[m.mode]
+	if len(h) == 0 {
+		return
+	}
+	if m.histPos == len(h) {
+		m.histDraft = m.input.Value()
+	}
+	pos := m.histPos + delta
+	if pos < 0 {
+		pos = 0
+	}
+	if pos > len(h) {
+		pos = len(h)
+	}
+	m.histPos = pos
+	if pos == len(h) {
+		m.input.SetValue(m.histDraft)
+	} else {
+		m.input.SetValue(h[pos])
+	}
+	m.input.CursorEnd()
+	if m.mode == modeSearch {
+		m.applySearch(strings.TrimSpace(m.input.Value()), false)
+	}
 }
 
 func (m *Model) capture(title string) {
