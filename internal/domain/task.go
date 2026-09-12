@@ -80,6 +80,8 @@ type Task struct {
 	RecurOf       string `yaml:"recur_of,omitempty"`
 	RolloverCount int    `yaml:"rollover_count,omitempty"`
 
+	// Completed is the day work stopped, for 완료 and 취소 alike: every view
+	// that reports "그 날 끝난 일" reads this one field.
 	Completed Date `yaml:"completed,omitempty"`
 
 	// Extra preserves frontmatter keys this version does not know about, so a

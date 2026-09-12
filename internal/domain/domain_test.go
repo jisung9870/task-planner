@@ -265,3 +265,27 @@ func TestAppendNoteKeepsExistingProse(t *testing.T) {
 		t.Fatalf("note = %q", note)
 	}
 }
+
+// Cancelling ends the work as surely as finishing does; the views that report
+// "그 날 끝난 일" all read Completed, so it has to be set for both.
+func TestTransitionRecordsCompletedForTerminalStates(t *testing.T) {
+	at := time.Date(2026, 9, 12, 10, 0, 0, 0, time.UTC)
+	today := DateOf(at)
+	for _, st := range []Status{StatusDone, StatusCancelled} {
+		task := &Task{ID: "T-1", Title: "작업", Status: StatusTodo}
+		if err := task.Transition(st, at, nil); err != nil {
+			t.Fatal(err)
+		}
+		if !task.Completed.Equal(today) {
+			t.Fatalf("%s: completed = %q", st, task.Completed)
+		}
+	}
+	// Reopening clears it: the work is not finished any more.
+	task := &Task{ID: "T-1", Title: "작업", Status: StatusDone, Completed: today}
+	if err := task.Transition(StatusTodo, at, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !task.Completed.IsZero() {
+		t.Fatalf("completed = %q", task.Completed)
+	}
+}

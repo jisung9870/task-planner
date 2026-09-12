@@ -58,7 +58,11 @@ func (t *Task) Transition(to Status, at time.Time, opts *TransitionOpts) error {
 		t.BlockedSince = Date{}
 	}
 
-	if to == StatusDone {
+	// Completed is the day the task stopped being work - cancelling ends it as
+	// surely as finishing does. Recording only 완료 left every "오늘 취소 N"
+	// and the weekly report's 취소 section permanently empty, because the
+	// readers all filter on this date.
+	if to.Terminal() {
 		t.Completed = today
 	} else {
 		t.Completed = Date{}
