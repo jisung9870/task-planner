@@ -209,6 +209,14 @@ type EditInput struct {
 	Recur     *string
 }
 
+// Any reports whether the input would change anything. The CLI needs it to
+// tell "지정한 필드가 없다" from "지정했는데 값이 같다".
+func (in EditInput) Any() bool {
+	return in.Title != nil || in.Project != nil || in.Priority != nil ||
+		in.Scheduled != nil || in.Due != nil || in.Estimate != nil ||
+		in.Tags != nil || in.Links != nil || in.Recur != nil
+}
+
 // Edit applies field updates and records what changed.
 func (s *Service) Edit(ref string, in EditInput) (*Result, error) {
 	t, err := s.Load(ref)
