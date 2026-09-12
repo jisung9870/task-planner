@@ -1,10 +1,33 @@
 package tui
 
-import "strings"
+import (
+	"strings"
 
-// helpLine is the persistent footer. The TUI has no menus, so this line is the
-// entire discovery surface for common actions.
-const helpLine = "a 추가  N 메모  space 상태  d 완료  D 기간  m 선택  v 뷰  ! 다음할일  / 검색  ctrl+z 되돌리기  1-5 탭  ? 도움말"
+	"github.com/charmbracelet/lipgloss"
+)
+
+// helpSegments is the persistent footer's content. The TUI has no menus, so
+// this line is the entire discovery surface for common actions. The last
+// segment is pinned by helpLine: it is the way to everything else.
+var helpSegments = []string{
+	"a 추가", "A 폼", "N 메모", "space 상태", "d 완료", "D 기간",
+	"m 선택", "v 뷰", "! 다음할일", "/ 검색", "ctrl+z 되돌리기", "1-5 탭", "? 도움말",
+}
+
+// helpLine renders the footer inside a width budget. Letting the terminal clip
+// it costs the last segment, which is exactly the one that leads to the full
+// list - so drop whole segments instead and keep "? 도움말" at the end.
+func helpLine(width int) string {
+	segs := helpSegments
+	for len(segs) > 1 {
+		line := strings.Join(segs, "  ")
+		if lipgloss.Width(line) <= width {
+			return line
+		}
+		segs = append(segs[:len(segs)-2:len(segs)-2], segs[len(segs)-1])
+	}
+	return segs[0]
+}
 
 // helpLines splits the help text once per frame; it is short enough that the
 // allocation does not matter and a cached copy would drift.
@@ -13,17 +36,21 @@ func helpLines() []string { return strings.Split(strings.TrimRight(helpFull, "\n
 // helpFull is shown by ?.
 const helpFull = `키
 
-  이동        ↑/k  ↓/j   g 맨 위   G 맨 아래   마우스 클릭·휠도 됩니다
+  이동        ↑/k  ↓/j   g/home 맨 위   G/end 맨 아래   마우스 클릭·휠도 됩니다
               ←/h  →/l   (Board·Week 에서 열 이동)
               H/L        선택한 카드를 옆 열로 (Board=상태, Week=날짜)
               J/K        상세 패널 스크롤
+  esc         한 겹씩 빠져나옵니다: 선택 해제 → 상세 접기 → 필터 해제 →
+              프로젝트 드릴인 나가기 (해당하는 첫 번째 하나만 실행)
   되돌리기    ctrl+z  직전 동작을 되돌립니다 (최근 20개, 파일 단위로 복원)
               밖에서 파일이 바뀌었으면 덮어쓰지 않고 거부합니다
   선택        m  현재 항목 선택/해제   M  전체 해제   esc 도 해제
-              선택이 있으면 상태·기간·프로젝트·메모·삭제 키가 선택 전체에 적용
-  뷰          v  저장된 질의 목록 (1-9 로 즉시 적용)
+              선택이 있으면 상태·기간·프로젝트·메모·건너뛰기·카드 이동·삭제가
+              선택 전체에 적용되고, 그 전체가 되돌리기 한 단계가 됩니다
+  뷰          v  저장된 질의 목록 (1-9 또는 enter 로 적용, d 로 삭제)
               v → s  현재 필터를 이름 붙여 저장 (config.yaml 의 views)
   탭          1 Today   2 Week   3 Board   4 Projects   5 All
+              tab / shift+tab  다음·이전 탭으로 순환
   추가        a  한 줄 캡처 — 나머지 필드는 나중에
               A  폼 캡처 — 제목·설명·기간·태그를 한 화면에서 (Jira 식)
   상태        space 순환   s 진행중   d 완료   b 보류   x 취소   u 대기중
@@ -55,7 +82,7 @@ const helpFull = `키
               ↑/↓ 로 이전에 쓴 질의를 불러옵니다
               status:doing  project:infra  tag:ops  priority:P1
               due<7d  scheduled:today  rollover>2  id:0012
-              is:open|closed|overdue|duesoon|blocked|carried|unscheduled
+              is:open|closed|overdue|duesoon|blocked|carried|unscheduled|recurring
               body:타임아웃   메모·로그 본문 검색 (파일을 읽으므로 조금 느림)
               앞에 - 를 붙이면 부정 (-status:done)
   새로고침    r      전체 재인덱싱  R

@@ -1127,9 +1127,9 @@ func (m *Model) footer() string {
 		}
 	}
 	if msg != "" {
-		return msg + "\n" + styHelp.Render(helpLine)
+		return msg + "\n" + styHelp.Render(helpLine(m.innerWidth()))
 	}
-	return styHelp.Render(helpLine)
+	return styHelp.Render(helpLine(m.innerWidth()))
 }
 
 // promptHint spells out the accepted syntax under the input. A prompt whose
