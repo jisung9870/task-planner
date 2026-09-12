@@ -43,8 +43,9 @@ const (
 	modeSpan
 	modeProject
 	modeNewProject
-	modeNote
 	modeProjectDue
+	modeNote
+	modeConfirm
 	modeHelp
 )
 
@@ -52,7 +53,7 @@ const (
 func (md mode) prompting() bool {
 	switch md {
 	case modeCapture, modeBlock, modeSearch, modeSpan, modeProject, modeNewProject,
-		modeNote, modeProjectDue:
+		modeProjectDue, modeNote:
 		return true
 	}
 	return false
@@ -111,6 +112,10 @@ type Model struct {
 	input  textinput.Model
 	search string
 	filter *query.Filter
+
+	// confirm holds the action a y/n prompt will run when answered.
+	confirm       func()
+	confirmPrompt string
 
 	width, height int
 

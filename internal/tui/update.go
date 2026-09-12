@@ -47,11 +47,29 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case m.mode == modeHelp:
 			m.updateHelp(msg)
 			return m, nil
+		case m.mode == modeConfirm:
+			m.updateConfirm(msg)
+			return m, nil
 		default:
 			return m.updateNormal(msg)
 		}
 	}
 	return m, nil
+}
+
+// updateConfirm answers a y/n question. Anything that is not a yes is a no:
+// the prompts that use this delete files.
+func (m *Model) updateConfirm(msg tea.KeyMsg) {
+	action := m.confirm
+	m.mode, m.confirm, m.confirmPrompt = modeNormal, nil, ""
+	switch msg.String() {
+	case "y", "Y", "enter":
+		if action != nil {
+			action()
+		}
+	default:
+		m.setStatus("취소됨")
+	}
 }
 
 // updateHelp scrolls the help screen; any other key closes it.
@@ -202,6 +220,10 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		n := len(m.marked)
 		m.marked = map[string]bool{}
 		m.setStatus("선택 %d건 해제", n)
+	case "S":
+		m.skipCurrent()
+	case "X":
+		m.confirmDelete()
 	case "ctrl+z":
 		m.undo()
 	case "e":
@@ -568,6 +590,53 @@ func (m *Model) moveCard(delta int) {
 		return
 	}
 	m.applyStatus(to, nil)
+}
+
+// skipCurrent advances a recurring task to its next occurrence.
+func (m *Model) skipCurrent() {
+	ts := m.targets()
+	if len(ts) == 0 {
+		return
+	}
+	m.mutate(m.bulkLabel(ts, "이번 회차 건너뜀"), ts, func(t *domain.Task) (*service.Result, error) {
+		return m.svc.Skip(t.ID)
+	})
+}
+
+// confirmDelete asks before removing files. Undo can put them back, but a file
+// disappearing from the vault is not something to do on a single keystroke.
+func (m *Model) confirmDelete() {
+	ts := m.targets()
+	if len(ts) == 0 {
+		return
+	}
+	what := fmt.Sprintf("%s %s", ts[0].ShortID(), ts[0].Title)
+	if len(ts) > 1 {
+		what = fmt.Sprintf("%d건", len(ts))
+	}
+	m.confirmPrompt = fmt.Sprintf("%s 을(를) 삭제할까요? 파일이 지워집니다 (y/n)  — 접을 일이면 x 로 취소가 낫습니다", what)
+	m.mode = modeConfirm
+	m.confirm = func() {
+		ids := make([]string, len(ts))
+		for i, t := range ts {
+			ids[i] = t.ID
+		}
+		err := m.svc.Undoable(m.bulkLabel(ts, "삭제"), func() error {
+			for _, id := range ids {
+				if err := m.svc.Delete(id); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		m.marked = map[string]bool{}
+		m.reload()
+		if err != nil {
+			m.setErr(err)
+			return
+		}
+		m.setStatus("%s 삭제됨 (ctrl+z 로 복구)", what)
+	}
 }
 
 // undo reverses the last action, leaving the cursor where it was - the point

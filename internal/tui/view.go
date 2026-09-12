@@ -148,7 +148,7 @@ func fitBlock(block string, w int) string {
 
 // footerLines is how many lines the footer occupies this frame.
 func (m *Model) footerLines() int {
-	if m.mode.prompting() {
+	if m.mode.prompting() || m.mode == modeConfirm {
 		return 2 // prompt + hint
 	}
 	if m.status != "" || m.errMsg != "" {
@@ -966,6 +966,9 @@ func detailMeta(t *domain.Task) string {
 }
 
 func (m *Model) footer() string {
+	if m.mode == modeConfirm {
+		return styDanger.Render(m.confirmPrompt) + "\n" + styHelp.Render("y 확인  ·  다른 키는 취소")
+	}
 	if m.mode.prompting() {
 		// input.View() already renders its own Prompt - do not prepend it again.
 		return m.input.View() + "\n" + styHelp.Render(m.promptHint())
