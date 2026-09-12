@@ -186,6 +186,11 @@ func (v *Vault) LoadProjects() ([]*domain.Project, error) {
 	return out, nil
 }
 
+// ProjectPath is where a project's metadata lives.
+func (v *Vault) ProjectPath(slug string) string {
+	return filepath.Join(v.ProjectsDir(), slug, "project.md")
+}
+
 // SaveProject writes a project file atomically.
 func (v *Vault) SaveProject(p *domain.Project) error {
 	if strings.TrimSpace(p.Slug) == "" {
@@ -195,11 +200,10 @@ func (v *Vault) SaveProject(p *domain.Project) error {
 	if err != nil {
 		return err
 	}
-	dir := filepath.Join(v.ProjectsDir(), p.Slug)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	path := v.ProjectPath(p.Slug)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	path := filepath.Join(dir, "project.md")
 	if err := WriteAtomic(path, raw, 0o644); err != nil {
 		return err
 	}

@@ -10,6 +10,7 @@ import (
 
 	"task-planner/internal/domain"
 	"task-planner/internal/query"
+	"task-planner/internal/service"
 )
 
 // pad left-aligns to a display width; %-Ns counts bytes and misaligns on CJK.
@@ -711,11 +712,35 @@ func (m *Model) renderProjRow(i int, r row) string {
 		cursor = stySelected.Render("▸ ")
 	}
 	c := r.proj
-	line := fmt.Sprintf("%s 열림 %-3d 진행 %-3d 보류 %-3d 완료 %-3d", pad(query.ProjectLabel(c.Slug), 24), c.Open, c.Doing, c.Blocked, c.Done)
+	line := fmt.Sprintf("%s %s 열림 %-3d 진행 %-3d 보류 %-3d 완료 %-3d",
+		pad(query.ProjectLabel(c.Slug), 18), pad(projStatusMark(c), 6),
+		c.Open, c.Doing, c.Blocked, c.Done)
+	if c.Name != "" && c.Name != c.Slug {
+		line += "  " + styMuted.Render(truncate(c.Name, 24))
+	}
 	if c.Overdue > 0 {
 		line += "  " + styDanger.Render(fmt.Sprintf("마감초과 %d", c.Overdue))
 	}
+	if !c.Active() {
+		line = styDoneRow.Render(stripStyles(line))
+	}
 	return "  " + cursor + line
+}
+
+// projStatusMark shows where a project stands. A slug that exists only on
+// tasks has no project.md and so no status to show - "·" says that plainly
+// instead of pretending it is active.
+func projStatusMark(c *service.ProjectRow) string {
+	if !c.Defined {
+		return styMuted.Render("·")
+	}
+	switch c.Status {
+	case "paused":
+		return styBlocked.Render("중지")
+	case "done":
+		return styMuted.Render("완료")
+	}
+	return styDoing.Render("진행")
 }
 
 func (m *Model) detailPane() string {
@@ -831,6 +856,17 @@ func (m *Model) promptHint() string {
 	switch m.mode {
 	case modeSpan:
 		return "enter 확인  esc 취소   예: 09-15~09-19 · today~+4d · 09-15 (시작만) · ~09-19 (마감만) · - 해제"
+	case modeProject:
+		hint := "enter 확인  esc 취소   - 입력 시 해제"
+		if slugs := m.svc.ProjectSlugs(); len(slugs) > 0 {
+			if len(slugs) > 8 {
+				slugs = slugs[:8]
+			}
+			hint += "   기존: " + strings.Join(slugs, " ")
+		}
+		return hint
+	case modeNewProject:
+		return "enter 확인  esc 취소   첫 낱말이 slug, 나머지가 이름 (예: infra-2026 인프라 개편)"
 	case modeBlock:
 		return "enter 확인  esc 취소   사유 없이는 보류되지 않습니다"
 	}

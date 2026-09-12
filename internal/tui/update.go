@@ -24,6 +24,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case editorDoneMsg:
 		m.handleEditorDone(msg)
 		return m, nil
+	case projectEditedMsg:
+		if msg.err != nil {
+			m.setErr(msg.err)
+			return m, nil
+		}
+		m.reload()
+		m.selectProject(msg.slug)
+		m.setStatus("프로젝트 %s 편집 반영", msg.slug)
+		return m, nil
 	case vaultChangedMsg:
 		m.handleVaultChanged()
 		return m, waitForChange(m.watcher)
@@ -143,6 +152,10 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.apply(t, domain.NextStatus(t.Status), nil)
 		}
 	case "s":
+		if p := m.currentProj(); p != nil {
+			m.cycleProject(p)
+			break
+		}
 		m.applyCurrent(domain.StatusDoing)
 	case "d":
 		m.applyCurrent(domain.StatusDone)
@@ -156,7 +169,20 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, textinput.Blink
 		}
 	case "e":
+		if p := m.currentProj(); p != nil {
+			return m, m.openProjectEditor(p)
+		}
 		return m, m.openEditor()
+	case "p":
+		if t := m.current(); t != nil {
+			m.startPrompt(modeProject, "프로젝트: ", t.Project)
+			return m, textinput.Blink
+		}
+	case "n":
+		if m.tab == tabProjects && !m.projDrill {
+			m.startPrompt(modeNewProject, "새 프로젝트 (slug [이름]): ", "")
+			return m, textinput.Blink
+		}
 	case "D":
 		if t := m.current(); t != nil {
 			m.startPrompt(modeSpan, "기간: ", t.Span().String())
@@ -306,6 +332,10 @@ func (m *Model) updatePrompt(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		case modeSpan:
 			m.setSpan(value)
+		case modeProject:
+			m.setProject(value)
+		case modeNewProject:
+			m.newProject(value)
 		case modeBlock:
 			if t := m.current(); t != nil {
 				if value == "" {
@@ -339,8 +369,13 @@ func (m *Model) capture(title string) {
 	if m.tab == tabWeek && m.colCursor < len(m.weekDays) {
 		in.Scheduled = m.weekDays[m.colCursor]
 	}
+	// Capturing with a project row selected files the task under it. The slug
+	// is read before the reload: the row moves once its open count changes.
+	projRow := ""
 	if m.projDrill {
 		in.Project = m.projSlug
+	} else if p := m.currentProj(); p != nil {
+		in.Project, projRow = p.Slug, p.Slug
 	}
 	res, err := m.svc.AddWithResult(in)
 	if err != nil {
@@ -349,7 +384,11 @@ func (m *Model) capture(title string) {
 	}
 	t := res.Task
 	m.reload()
-	m.selectID(t.ID)
+	if projRow != "" {
+		m.selectProject(projRow)
+	} else {
+		m.selectID(t.ID)
+	}
 	m.setStatus("추가됨 %s  %s", t.ShortID(), t.Title)
 	for _, w := range res.Warnings {
 		m.status += "  · " + w
@@ -474,6 +513,113 @@ func (m *Model) afterSpanChange(t *domain.Task, verb string) {
 		d := t.SpanStart()
 		m.setStatus("%s 예정 → %s (%s) %s", t.ShortID(), d, d.WeekdayKO(), verb)
 	}
+}
+
+// setProject re-homes the selected task. "-" clears the assignment.
+func (m *Model) setProject(value string) {
+	t := m.current()
+	if t == nil {
+		return
+	}
+	slug := value
+	if slug == "-" || slug == "없음" {
+		slug = ""
+	} else if slug != "" {
+		slug = service.ProjectSlug(slug)
+	}
+	res, err := m.svc.Edit(t.ID, service.EditInput{Project: &slug})
+	if err != nil {
+		m.setErr(err)
+		return
+	}
+	m.reload()
+	m.selectID(res.Task.ID)
+	if slug == "" {
+		m.setStatus("%s 프로젝트 해제", res.Task.ShortID())
+		return
+	}
+	m.setStatus("%s → 프로젝트 %s", res.Task.ShortID(), slug)
+}
+
+// newProject creates projects/<slug>/project.md. The prompt takes "slug 이름"
+// on one line: two prompts for two obvious fields is one prompt too many.
+func (m *Model) newProject(value string) {
+	if value == "" {
+		return
+	}
+	slug, name, _ := strings.Cut(value, " ")
+	p, err := m.svc.CreateProject(slug, strings.TrimSpace(name))
+	if err != nil {
+		m.setErr(err)
+		return
+	}
+	m.reload()
+	m.selectProject(p.Slug)
+	m.setStatus("프로젝트 추가됨 %s  %s", p.Slug, p.Display())
+}
+
+// cycleProject advances the project status (active → paused → done).
+func (m *Model) cycleProject(r *service.ProjectRow) {
+	if r.Slug == "" {
+		m.setErr(errNotAProject)
+		return
+	}
+	if _, err := m.svc.EnsureProject(r.Slug); err != nil {
+		m.setErr(err)
+		return
+	}
+	p, err := m.svc.CycleProjectStatus(r.Slug)
+	if err != nil {
+		m.setErr(err)
+		return
+	}
+	m.reload()
+	m.selectProject(p.Slug)
+	m.setStatus("프로젝트 %s → %s", p.Slug, p.Status)
+}
+
+// selectProject keeps the cursor on a project row across a reload.
+func (m *Model) selectProject(slug string) {
+	for i, r := range m.rows {
+		if r.proj != nil && r.proj.Slug == slug {
+			m.cursor = i
+			return
+		}
+	}
+	m.clampCursor()
+}
+
+// openProjectEditor edits project.md, creating it first when the project only
+// exists as a slug on some task - which is the usual way one comes into being.
+func (m *Model) openProjectEditor(r *service.ProjectRow) tea.Cmd {
+	if r.Slug == "" {
+		m.setErr(errNotAProject)
+		return nil
+	}
+	p, err := m.svc.EnsureProject(r.Slug)
+	if err != nil {
+		m.setErr(err)
+		return nil
+	}
+	cmd, err := editor.Command(m.svc.Cfg, p.Path)
+	if err != nil {
+		m.setErr(err)
+		return nil
+	}
+	slug := r.Slug
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		return projectEditedMsg{slug: slug, err: err}
+	})
+}
+
+// errNotAProject guards the 미지정 bucket: it is where tasks without a project
+// collect, not a project that could have a file.
+var errNotAProject = fmt.Errorf("(미지정) 은 프로젝트가 아닙니다 — 태스크에 p 로 프로젝트를 지정하세요")
+
+// projectEditedMsg carries the result of editing project.md.
+type projectEditedMsg struct {
+	slug string
+	err  error
 }
 
 func (m *Model) refresh(full bool) {

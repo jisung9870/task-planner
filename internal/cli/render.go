@@ -20,6 +20,16 @@ func pad(s string, w int) string {
 	return s + strings.Repeat(" ", d)
 }
 
+// padLeft right-aligns to a display width, for numeric column headings whose
+// %Nd counterparts count cells rather than bytes.
+func padLeft(s string, w int) string {
+	d := w - runewidth.StringWidth(s)
+	if d <= 0 {
+		return s
+	}
+	return strings.Repeat(" ", d) + s
+}
+
 // renderList prints a task list grouped by status - the same grouping the TUI
 // shows, so switching between the two does not require re-learning the layout.
 func renderList(w io.Writer, ts []*domain.Task, today domain.Date, dueSoon int) {

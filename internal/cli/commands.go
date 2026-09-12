@@ -308,23 +308,62 @@ func printDeps(w io.Writer, svc *service.Service, t *domain.Task) {
 }
 
 func newProjectsCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:     "projects",
 		Aliases: []string{"proj"},
 		Short:   "프로젝트별 진행 현황",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withService(func(svc *service.Service) error {
-				counts := svc.ProjectCounts()
-				if len(counts) == 0 {
-					fmt.Fprintln(cmd.OutOrStdout(), "  (없음)")
+				rows, err := svc.ProjectRows()
+				if err != nil {
+					return err
+				}
+				if len(rows) == 0 {
+					fmt.Fprintln(cmd.OutOrStdout(), "  (없음)  `tp projects new <slug>` 로 추가")
 					return nil
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "%s %6s %6s %5s %5s %8s\n",
-					pad("프로젝트", 24), "열림", "진행중", "보류", "완료", "마감초과")
-				for _, c := range counts {
-					fmt.Fprintf(cmd.OutOrStdout(), "%s %6d %6d %5d %5d %8d\n",
-						pad(query.ProjectLabel(c.Slug), 24), c.Open, c.Doing, c.Blocked, c.Done, c.Overdue)
+				out := cmd.OutOrStdout()
+				fmt.Fprintf(out, "%s %s %s %s %s %s %s\n",
+					pad("프로젝트", 20), pad("상태", 10), padLeft("열림", 6),
+					padLeft("진행중", 6), padLeft("보류", 5), padLeft("완료", 5), padLeft("마감초과", 8))
+				for _, r := range rows {
+					fmt.Fprintf(out, "%s %s %6d %6d %5d %5d %8d\n",
+						pad(query.ProjectLabel(r.Slug), 20), pad(projectStatusLabel(r), 10),
+						r.Open, r.Doing, r.Blocked, r.Done, r.Overdue)
 				}
+				return nil
+			})
+		},
+	}
+	cmd.AddCommand(newProjectNewCmd())
+	return cmd
+}
+
+// projectStatusLabel distinguishes a project with a file from a slug that only
+// exists on tasks - the latter has no status to report.
+func projectStatusLabel(r service.ProjectRow) string {
+	if !r.Defined {
+		return "-"
+	}
+	if r.Status == "" {
+		return "active"
+	}
+	return r.Status
+}
+
+func newProjectNewCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:     "new <slug> [이름...]",
+		Aliases: []string{"add"},
+		Short:   "프로젝트 생성 (projects/<slug>/project.md)",
+		Args:    cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return withService(func(svc *service.Service) error {
+				p, err := svc.CreateProject(args[0], strings.Join(args[1:], " "))
+				if err != nil {
+					return err
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "프로젝트 생성 %s  %s\n  %s\n", p.Slug, p.Display(), p.Path)
 				return nil
 			})
 		},

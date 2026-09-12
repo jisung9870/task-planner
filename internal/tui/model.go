@@ -41,13 +41,15 @@ const (
 	modeBlock
 	modeSearch
 	modeSpan
+	modeProject
+	modeNewProject
 	modeHelp
 )
 
 // prompting reports whether the mode is a one-line text prompt.
 func (md mode) prompting() bool {
 	switch md {
-	case modeCapture, modeBlock, modeSearch, modeSpan:
+	case modeCapture, modeBlock, modeSearch, modeSpan, modeProject, modeNewProject:
 		return true
 	}
 	return false
@@ -57,7 +59,7 @@ func (md mode) prompting() bool {
 type row struct {
 	header string
 	task   *domain.Task
-	proj   *query.ProjectCount
+	proj   *service.ProjectRow
 }
 
 func (r row) selectable() bool { return r.task != nil || r.proj != nil }
@@ -277,15 +279,29 @@ func (m *Model) moveColumn(delta int) {
 	}
 }
 
-// projectRows renders the per-project rollup, open work first.
+// projectRows renders the per-project rollup, open work first. Projects with a
+// file but no tasks are included: a project is created before its work exists,
+// and a row that only appears once a task references it would look like the
+// creation failed.
 func (m *Model) projectRows() []row {
-	counts := m.svc.ProjectCounts()
-	rows := []row{{header: fmt.Sprintf("프로젝트 (%d)", len(counts))}}
-	for i := range counts {
-		c := counts[i]
-		rows = append(rows, row{proj: &c})
+	list, err := m.svc.ProjectRows()
+	if err != nil {
+		m.setErr(err)
+	}
+	rows := []row{{header: fmt.Sprintf("프로젝트 (%d)", len(list))}}
+	for i := range list {
+		p := list[i]
+		rows = append(rows, row{proj: &p})
 	}
 	return rows
+}
+
+// currentProj returns the selected project row, if the cursor is on one.
+func (m *Model) currentProj() *service.ProjectRow {
+	if m.gridTab() || m.cursor < 0 || m.cursor >= len(m.rows) {
+		return nil
+	}
+	return m.rows[m.cursor].proj
 }
 
 func (m *Model) clampCursor() {

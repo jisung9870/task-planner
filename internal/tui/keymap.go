@@ -2,7 +2,7 @@ package tui
 
 // helpLine is the persistent footer. The TUI has no menus, so this line is the
 // entire discovery surface for common actions.
-const helpLine = "a 추가  e 편집  space 상태  s 진행  d 완료  b 보류  D 기간  [ ] 이동  enter 상세  r 새로고침  1-5 탭  q 종료  ? 도움말"
+const helpLine = "a 추가  e 편집  space 상태  s 진행  d 완료  b 보류  D 기간  p 프로젝트  [ ] 이동  enter 상세  r 새로고침  1-5 탭  q 종료  ? 도움말"
 
 // helpFull is shown by ?.
 const helpFull = `키
@@ -24,6 +24,11 @@ const helpFull = `키
               둘째 날부터는 ╌ 와 "3/5일" 로 표시됩니다.
   추가        a  (한 줄 캡처 — 나머지 필드는 나중에)
   상태        space 순환   s 진행중   d 완료   b 보류   x 취소   u 대기중
+  프로젝트    p  선택한 태스크의 프로젝트 지정 ( - 입력 시 해제)
+  Projects    n  새 프로젝트 (slug [이름])
+              s  상태 순환 active → paused → done
+              e  project.md 편집 (없으면 만들고 엽니다)
+              enter 드릴인 — 그 안에서 a 로 추가하면 그 프로젝트로 들어갑니다
   상세        넓은 화면: 우측 고정 패널 (enter 로 접기/펼치기)
               좁은 화면: enter 로 하단 패널 토글
   편집        e  (외부 편집기 — 저장하고 나오면 자동 반영)
