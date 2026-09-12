@@ -115,7 +115,7 @@ func fitBlock(block string, w int) string {
 
 // footerLines is how many lines the footer occupies this frame.
 func (m *Model) footerLines() int {
-	if m.mode == modeCapture || m.mode == modeBlock || m.mode == modeSearch {
+	if m.mode.prompting() {
 		return 2 // prompt + hint
 	}
 	if m.status != "" || m.errMsg != "" {
@@ -355,6 +355,10 @@ func (m *Model) renderTaskRow(i int, t *domain.Task, today domain.Date) string {
 	if !t.Estimate.IsZero() {
 		meta = append(meta, "~"+t.Estimate.String())
 	}
+	if t.HasSpan() {
+		meta = append(meta, fmt.Sprintf("%s~%s %d일",
+			t.SpanStart().Time().Format("01-02"), t.SpanEnd().Time().Format("01-02"), t.SpanDays()))
+	}
 	line := body
 	if t.Status == domain.StatusDoing && t.StartedAt != nil {
 		meta = append(meta, "⏱"+t.ElapsedActual(m.svc.Now()).String())
@@ -364,7 +368,7 @@ func (m *Model) renderTaskRow(i int, t *domain.Task, today domain.Date) string {
 	if len(meta) > 0 {
 		line += "  " + styMuted.Render(strings.Join(meta, " · "))
 	}
-	if note := m.dueNote(t, today); note != "" {
+	if note := m.dueNote(t, today, !t.HasSpan()); note != "" {
 		line += "  " + note
 	}
 	if t.Recur != "" && t.IsOpen() {
@@ -400,7 +404,9 @@ func (m *Model) blockNote(t *domain.Task, today domain.Date) string {
 	return reason
 }
 
-func (m *Model) dueNote(t *domain.Task, today domain.Date) string {
+// dueNote flags the deadline. far decides whether a deadline still comfortably
+// ahead is printed at all - a row that already shows the 기간 has said it once.
+func (m *Model) dueNote(t *domain.Task, today domain.Date, far bool) string {
 	if t.Due.IsZero() || !t.IsOpen() {
 		return ""
 	}
@@ -412,6 +418,8 @@ func (m *Model) dueNote(t *domain.Task, today domain.Date) string {
 		return styDanger.Render("오늘 마감")
 	case d <= m.svc.Cfg.DueSoonDays:
 		return styBlocked.Render(fmt.Sprintf("D-%d", d))
+	case !far:
+		return ""
 	}
 	return styMuted.Render("~" + t.Due.String())
 }
@@ -445,7 +453,7 @@ func (m *Model) boardStacked(width int, today domain.Date) string {
 	for i, st := range boardColumns {
 		b.WriteString(styGroup.Render(fmt.Sprintf("▾ %s (%d)", st.Label(), len(m.cols[i]))) + "\n")
 		for r, t := range m.cols[i] {
-			b.WriteString(m.card(t, width, i == m.colCursor && r == m.rowCursor, today) + "\n")
+			b.WriteString(m.card(t, domain.Date{}, width, i == m.colCursor && r == m.rowCursor, today) + "\n")
 		}
 	}
 	return b.String() + m.boardFooter(today)
@@ -478,7 +486,7 @@ func (m *Model) boardColumn(idx int, st domain.Status, width, maxCards int, toda
 	}
 	for r := start; r < end; r++ {
 		selected := idx == m.colCursor && r == m.rowCursor
-		b.WriteString(m.card(cards[r], width, selected, today) + "\n")
+		b.WriteString(m.card(cards[r], domain.Date{}, width, selected, today) + "\n")
 	}
 	if end < len(cards) {
 		b.WriteString(styMuted.Render(fmt.Sprintf("  ↓ %d건", len(cards)-end)) + "\n")
@@ -486,20 +494,39 @@ func (m *Model) boardColumn(idx int, st domain.Status, width, maxCards int, toda
 	return lipgloss.NewStyle().Width(width).MarginRight(2).Render(b.String())
 }
 
-// card is the two-line cell used on the board.
-func (m *Model) card(t *domain.Task, width int, selected bool, today domain.Date) string {
+// card is the two-line cell used on the board and the week grid.
+//
+// day is the column's date on the Week grid and the zero Date on the Board.
+// A task whose 진행 기간 covers several days draws on each of them; every day
+// after the first is a continuation cell, marked so the grid reads as one bar
+// rather than as five separate tasks.
+func (m *Model) card(t *domain.Task, day domain.Date, width int, selected bool, today domain.Date) string {
 	marker := "  "
 	if selected {
 		marker = stySelected.Render("▸ ")
 	}
-	title := truncate(t.Title, width-4)
+	cont := !day.IsZero() && t.HasSpan() && day.After(t.SpanStart())
+	title := t.Title
+	if cont {
+		title = "╌ " + title
+	}
+	title = truncate(title, width-4)
 	head := marker + title
-	if selected {
+	switch {
+	case selected:
 		head = marker + stySelected.Render(title)
+	case cont:
+		head = marker + styMuted.Render(title)
 	}
 
 	var meta []string
 	meta = append(meta, t.ShortID())
+	if !day.IsZero() && t.HasSpan() {
+		// How far into the period this day is, and how much is left. On a
+		// narrow column this is the first thing to survive truncation - it is
+		// what turns repeated cards into one bar.
+		meta = append(meta, fmt.Sprintf("%d/%d일", t.DayIndex(day), t.SpanDays()))
+	}
 	if t.Project != "" {
 		meta = append(meta, t.Project)
 	}
@@ -611,7 +638,7 @@ func (m *Model) weekColumn(idx, width, maxCards int, today domain.Date) string {
 		b.WriteString(styMuted.Render(fmt.Sprintf(" ↑%d", start)) + "\n")
 	}
 	for r := start; r < end; r++ {
-		b.WriteString(m.card(cards[r], width, idx == m.colCursor && r == m.rowCursor, today) + "\n")
+		b.WriteString(m.card(cards[r], d, width, idx == m.colCursor && r == m.rowCursor, today) + "\n")
 	}
 	if end < len(cards) {
 		b.WriteString(styMuted.Render(fmt.Sprintf(" ↓%d", len(cards)-end)) + "\n")
@@ -645,7 +672,7 @@ func (m *Model) weekLane(lane []*domain.Task, width, laneMax int) string {
 		if t.Project != "" {
 			line += "  " + styMuted.Render(t.Project)
 		}
-		if note := m.dueNote(t, today); note != "" {
+		if note := m.dueNote(t, today, true); note != "" {
 			line += "  " + note
 		}
 		b.WriteString("  " + cursor + truncate(line, width-6) + "\n")
@@ -669,7 +696,7 @@ func (m *Model) weekStacked(width int, today domain.Date) string {
 		}
 		b.WriteString(styGroup.Render(fmt.Sprintf("%s%s %s (%d)", mark, d.WeekdayKO(), d.Time().Format("01-02"), len(m.cols[i]))) + "\n")
 		for r, t := range m.cols[i] {
-			b.WriteString(m.card(t, width, i == m.colCursor && r == m.rowCursor, today) + "\n")
+			b.WriteString(m.card(t, d, width, i == m.colCursor && r == m.rowCursor, today) + "\n")
 		}
 	}
 	if lane := m.cols[weekLaneUnassigned]; len(lane) > 0 {
@@ -747,11 +774,16 @@ func detailMeta(t *domain.Task) string {
 	if t.Priority != "" {
 		parts = append(parts, string(t.Priority))
 	}
-	if !t.Scheduled.IsZero() {
-		parts = append(parts, "예정 "+t.Scheduled.String())
-	}
-	if !t.Due.IsZero() {
-		parts = append(parts, "마감 "+t.Due.String())
+	if t.HasSpan() {
+		// Two dates that bound a period read better as one fact than as two.
+		parts = append(parts, fmt.Sprintf("기간 %s~%s (%d일)", t.SpanStart(), t.SpanEnd(), t.SpanDays()))
+	} else {
+		if !t.Scheduled.IsZero() {
+			parts = append(parts, "예정 "+t.Scheduled.String())
+		}
+		if !t.Due.IsZero() {
+			parts = append(parts, "마감 "+t.Due.String())
+		}
 	}
 	if !t.Estimate.IsZero() {
 		parts = append(parts, "예상 "+t.Estimate.String())
@@ -775,9 +807,9 @@ func detailMeta(t *domain.Task) string {
 }
 
 func (m *Model) footer() string {
-	if m.mode == modeCapture || m.mode == modeBlock || m.mode == modeSearch {
+	if m.mode.prompting() {
 		// input.View() already renders its own Prompt - do not prepend it again.
-		return m.input.View() + "\n" + styHelp.Render("enter 확인  esc 취소")
+		return m.input.View() + "\n" + styHelp.Render(m.promptHint())
 	}
 	msg := ""
 	switch {
@@ -790,6 +822,19 @@ func (m *Model) footer() string {
 		return msg + "\n" + styHelp.Render(helpLine)
 	}
 	return styHelp.Render(helpLine)
+}
+
+// promptHint spells out the accepted syntax under the input. A prompt whose
+// grammar is only in the help screen gets guessed at, and a wrong guess here
+// writes a wrong date into a file.
+func (m *Model) promptHint() string {
+	switch m.mode {
+	case modeSpan:
+		return "enter 확인  esc 취소   예: 09-15~09-19 · today~+4d · 09-15 (시작만) · ~09-19 (마감만) · - 해제"
+	case modeBlock:
+		return "enter 확인  esc 취소   사유 없이는 보류되지 않습니다"
+	}
+	return "enter 확인  esc 취소"
 }
 
 // stripStyles removes ANSI sequences so a strikethrough row renders uniformly.

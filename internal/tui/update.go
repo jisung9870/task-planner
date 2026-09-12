@@ -32,10 +32,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// triggers a redraw.
 		return m, tickCmd()
 	case tea.KeyMsg:
-		switch m.mode {
-		case modeCapture, modeBlock, modeSearch:
+		switch {
+		case m.mode.prompting():
 			return m.updatePrompt(msg)
-		case modeHelp:
+		case m.mode == modeHelp:
 			m.mode = modeNormal
 			return m, nil
 		default:
@@ -75,9 +75,9 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.moveColumn(1)
 		}
 	case "[", "]":
-		if m.tab == tabWeek {
-			m.shiftScheduled(msg.String() == "]")
-		}
+		m.shiftSpan(map[string]int{"[": -1, "]": 1}[msg.String()])
+	case "{", "}":
+		m.resizeSpan(map[string]int{"{": -1, "}": 1}[msg.String()])
 	case "g", "home":
 		m.cursor, m.rowCursor = 0, 0
 		m.clampCursor()
@@ -157,6 +157,11 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "e":
 		return m, m.openEditor()
+	case "D":
+		if t := m.current(); t != nil {
+			m.startPrompt(modeSpan, "기간: ", t.Span().String())
+			return m, textinput.Blink
+		}
 	}
 	return m, nil
 }
@@ -299,6 +304,8 @@ func (m *Model) updatePrompt(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			} else {
 				m.setStatus("필터: %s — %d건", value, countTasks(m.rows))
 			}
+		case modeSpan:
+			m.setSpan(value)
 		case modeBlock:
 			if t := m.current(); t != nil {
 				if value == "" {
@@ -402,30 +409,71 @@ func (m *Model) selectID(id string) {
 	m.clampCursor()
 }
 
-// shiftScheduled moves the selected task's start date by one day - the Week
-// grid's re-planning gesture. An unscheduled task gets today first, so the
-// first press pulls it out of the 미배정 lane instead of jumping blindly.
-func (m *Model) shiftScheduled(forward bool) {
+// shiftSpan slides the selected task's whole 진행 기간 by a day, keeping its
+// length - the re-planning gesture ("이건 하루 밀자"). An unscheduled task gets
+// today first, so the first press pulls it out of the 미배정 lane instead of
+// jumping blindly.
+func (m *Model) shiftSpan(days int) {
 	t := m.current()
 	if t == nil {
 		return
 	}
-	var next domain.Date
-	if t.Scheduled.IsZero() {
-		next = m.svc.Today()
-	} else if forward {
-		next = t.Scheduled.AddDays(1)
-	} else {
-		next = t.Scheduled.AddDays(-1)
-	}
-	res, err := m.svc.Edit(t.ID, service.EditInput{Scheduled: &next})
+	res, err := m.svc.ShiftSpan(t.ID, days)
 	if err != nil {
 		m.setErr(err)
 		return
 	}
+	m.afterSpanChange(res.Task, "이동")
+}
+
+// resizeSpan moves only the end of the period: the task starts when it started
+// and now takes longer (or less).
+func (m *Model) resizeSpan(days int) {
+	t := m.current()
+	if t == nil {
+		return
+	}
+	res, err := m.svc.ResizeSpan(t.ID, days)
+	if err != nil {
+		m.setErr(err)
+		return
+	}
+	m.afterSpanChange(res.Task, "조정")
+}
+
+// setSpan applies a typed period ("09-15~09-19").
+func (m *Model) setSpan(value string) {
+	t := m.current()
+	if t == nil || value == "" {
+		return
+	}
+	sp, err := m.svc.ParseSpan(value)
+	if err != nil {
+		m.setErr(err)
+		return
+	}
+	res, err := m.svc.SetSpan(t.ID, sp)
+	if err != nil {
+		m.setErr(err)
+		return
+	}
+	m.afterSpanChange(res.Task, "설정")
+}
+
+// afterSpanChange re-reads the view and reports the period in one line.
+func (m *Model) afterSpanChange(t *domain.Task, verb string) {
 	m.reload()
-	m.selectID(res.Task.ID)
-	m.setStatus("%s 예정 → %s (%s)", res.Task.ShortID(), next, next.WeekdayKO())
+	m.selectID(t.ID)
+	switch {
+	case t.SpanDays() == 0:
+		m.setStatus("%s 기간 해제", t.ShortID())
+	case t.HasSpan():
+		m.setStatus("%s 기간 %s~%s (%d일) %s", t.ShortID(),
+			t.SpanStart(), t.SpanEnd(), t.SpanDays(), verb)
+	default:
+		d := t.SpanStart()
+		m.setStatus("%s 예정 → %s (%s) %s", t.ShortID(), d, d.WeekdayKO(), verb)
+	}
 }
 
 func (m *Model) refresh(full bool) {

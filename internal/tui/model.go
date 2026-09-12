@@ -40,8 +40,18 @@ const (
 	modeCapture
 	modeBlock
 	modeSearch
+	modeSpan
 	modeHelp
 )
+
+// prompting reports whether the mode is a one-line text prompt.
+func (md mode) prompting() bool {
+	switch md {
+	case modeCapture, modeBlock, modeSearch, modeSpan:
+		return true
+	}
+	return false
+}
 
 // row is one rendered line: a group header, a task, or a project rollup.
 type row struct {
