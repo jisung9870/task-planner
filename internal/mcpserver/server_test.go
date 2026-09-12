@@ -328,3 +328,26 @@ func TestArchiveDryRunReportsWithoutMoving(t *testing.T) {
 		t.Fatal("아카이브 후에도 인덱스에 남아 있음")
 	}
 }
+
+func TestCheckTitleRejectsParagraphs(t *testing.T) {
+	if err := checkTitle("보안 감사 로그 정리"); err != nil {
+		t.Fatal(err)
+	}
+	long := strings.Repeat("가", titleLimit+1)
+	if err := checkTitle(long); err == nil {
+		t.Fatal("긴 제목이 통과함")
+	}
+	// The error must say where the detail goes, not just "too long".
+	if err := checkTitle(long); !strings.Contains(err.Error(), "note") {
+		t.Fatalf("고치는 방법이 없음: %v", err)
+	}
+}
+
+func TestNoteAdviceFlagsDocuments(t *testing.T) {
+	if w := noteAdvice("배경 한 줄. https://link"); w != "" {
+		t.Fatalf("짧은 메모에 경고: %s", w)
+	}
+	if w := noteAdvice(strings.Repeat("계획 항목\n", 12)); w == "" {
+		t.Fatal("문서 수준 note 에 경고가 없음")
+	}
+}

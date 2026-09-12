@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -11,7 +12,7 @@ import (
 )
 
 type addArgs struct {
-	Title     string   `json:"title" jsonschema:"태스크 제목 (필수)"`
+	Title     string   `json:"title" jsonschema:"태스크 제목 (필수). 40자 안쪽의 명사구 한 줄 — 문장·부연 설명을 넣지 말고 상세는 note 로"`
 	Project   string   `json:"project,omitempty" jsonschema:"프로젝트 slug"`
 	Priority  string   `json:"priority,omitempty" jsonschema:"우선순위 P0~P3"`
 	Scheduled string   `json:"scheduled,omitempty" jsonschema:"착수 예정일: YYYY-MM-DD | today | tomorrow"`
@@ -19,9 +20,31 @@ type addArgs struct {
 	Estimate  string   `json:"estimate,omitempty" jsonschema:"예상 소요 (30m, 2h, 1h30m)"`
 	Tags      []string `json:"tags,omitempty"`
 	Links     []string `json:"links,omitempty" jsonschema:"외부 링크 (jira:ABC-123 등)"`
-	Note      string   `json:"note,omitempty" jsonschema:"메모 본문 (markdown)"`
+	Note      string   `json:"note,omitempty" jsonschema:"메모 본문 (markdown). 꼭 필요한 맥락만 2~4줄 — 배경 한 줄과 링크면 충분하고, 계획서·체크리스트·수용 기준을 태스크에 쓰지 않는다"`
 	Recur     string   `json:"recur,omitempty" jsonschema:"반복 규칙: daily|weekly|monthly|weekdays|every N days|every monday|monthly on 15"`
 	Start     bool     `json:"start,omitempty" jsonschema:"true 면 추가와 동시에 진행중으로 (타이머 시작)"`
+}
+
+// titleLimit is the hard cap on a title, in runes. The tool description asks
+// for 40; the cap only rejects what is clearly a paragraph in disguise. A
+// title is also the filename, and a filename-length essay helps no one.
+const titleLimit = 60
+
+// checkTitle rejects over-long titles with a fix, not just a refusal - the
+// calling model needs to know where the removed detail should go.
+func checkTitle(title string) error {
+	if n := len([]rune(strings.TrimSpace(title))); n > titleLimit {
+		return fmt.Errorf("제목이 너무 김 (%d자, 최대 %d자) — 40자 안쪽 명사구로 줄이고 상세는 note 로 옮길 것", n, titleLimit)
+	}
+	return nil
+}
+
+// noteAdvice warns (not rejects) when a note reads like a document.
+func noteAdvice(note string) string {
+	if len([]rune(note)) > 600 || strings.Count(note, "\n") > 8 {
+		return "note 가 깁니다 — 태스크 메모는 2~4줄이면 충분하고, 문서는 프로젝트나 저장소에 둡니다"
+	}
+	return ""
 }
 
 type mutateOut struct {
@@ -98,9 +121,12 @@ type rolloverOut struct {
 func (s *Server) registerWriteTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "task_add",
-		Description: "태스크 추가. id 채번·생성 로그·WIP 경고가 자동 처리됨. 파일을 직접 만들지 말고 이 도구를 쓸 것.",
+		Description: "태스크 추가. id 채번·생성 로그·WIP 경고가 자동 처리됨. 파일을 직접 만들지 말고 이 도구를 쓸 것. 심플하게 쓸 것: 제목은 40자 안쪽 명사구 한 줄, note 는 꼭 필요한 맥락 2~4줄 — 개인 도구의 태스크는 티켓이 아니라 할 일 한 줄이다.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in addArgs) (*mcp.CallToolResult, mutateOut, error) {
 		defer s.begin()()
+		if err := checkTitle(in.Title); err != nil {
+			return nil, mutateOut{}, err
+		}
 		today := s.svc.Today()
 		ai := service.AddInput{
 			Title: in.Title, Project: in.Project,
@@ -129,7 +155,11 @@ func (s *Server) registerWriteTools() {
 		if err := s.finish(); err != nil {
 			return nil, mutateOut{}, err
 		}
-		return nil, toMutateOut(res, today), nil
+		out := toMutateOut(res, today)
+		if w := noteAdvice(in.Note); w != "" {
+			out.Warnings = append(out.Warnings, w)
+		}
+		return nil, out, nil
 	})
 
 	mcp.AddTool(s.mcp, &mcp.Tool{
@@ -176,6 +206,11 @@ func (s *Server) registerWriteTools() {
 		Description: "필드 수정 (부분 갱신 — 지정한 필드만 바뀜). 변경 내역이 태스크 로그에 남음. 진행 기간은 span 하나로 지정할 수 있음.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in editArgs) (*mcp.CallToolResult, mutateOut, error) {
 		defer s.begin()()
+		if in.Title != nil {
+			if err := checkTitle(*in.Title); err != nil {
+				return nil, mutateOut{}, err
+			}
+		}
 		today := s.svc.Today()
 		ei := service.EditInput{Title: in.Title, Project: in.Project, Tags: in.Tags, Recur: in.Recur}
 		if in.Priority != nil {
