@@ -11,7 +11,7 @@ import (
 // segment is pinned by helpLine: it is the way to everything else.
 var helpSegments = []string{
 	"a 추가", "A 폼", "N 메모", "space 상태", "d 완료", "D 기간",
-	"m 선택", "v 뷰", "! 다음할일", "/ 검색", "ctrl+z 되돌리기", "1-5 탭", "? 도움말",
+	"m 선택", "v 뷰", "! 다음할일", "/ 검색", "ctrl+z 되돌리기", "1-6 탭", "? 도움말",
 }
 
 // helpLine renders the footer inside a width budget. Letting the terminal clip
@@ -49,7 +49,7 @@ const helpFull = `키
               선택 전체에 적용되고, 그 전체가 되돌리기 한 단계가 됩니다
   뷰          v  저장된 질의 목록 (1-9 또는 enter 로 적용, d 로 삭제)
               v → s  현재 필터를 이름 붙여 저장 (config.yaml 의 views)
-  탭          1 Today   2 Week   3 Board   4 Projects   5 All
+  탭          1 Today  2 Week  3 Board  4 Timeline  5 Projects  6 All
               tab / shift+tab  다음·이전 탭으로 순환
   추가        a  한 줄 캡처 — 나머지 필드는 나중에
               A  폼 캡처 — 제목·설명·기간·태그를 한 화면에서 (Jira 식)
@@ -70,6 +70,12 @@ const helpFull = `키
   Week        요일 7컬럼 + 미배정 lane.
               기간이 여러 날인 태스크는 걸쳐 있는 모든 요일에 나오고,
               둘째 날부터는 ╌ 와 "3/5일" 로 표시됩니다.
+  Timeline    간트 — 한 줄에 태스크 하나, 가로축이 날짜입니다.
+              h / l  창을 한 주씩 앞뒤로   t  이번 주로 복귀
+              창 길이는 터미널 폭에 맞춰 1~4주로 정해집니다.
+              ◀ ▶ 는 기간이 창 밖으로 이어진다는 뜻, ▼ 와 ┊ 는 오늘입니다.
+              커서·선택·상태·기간 키는 목록 탭과 똑같이 듣습니다.
+              날짜 없는 태스크는 그릴 자리가 없어 맨 아래 건수로만 나옵니다.
   Projects    n  새 프로젝트 (slug [이름])
               s  상태 순환 active → paused → done
               D  프로젝트 마감일 (진행률 옆에 D-n 으로 표시)

@@ -182,7 +182,9 @@ func (m *Model) wide() bool { return m.innerWidth() >= 100 }
 // splitActive: the right-hand detail pane renders on wide terminals for list
 // tabs whenever a task is selected. Grid tabs draw their own columns.
 func (m *Model) splitActive() bool {
-	return m.wide() && m.wideDetail && !m.gridTab() && m.current() != nil
+	// Timeline draws to the full width for the same reason: half a chart is
+	// half a schedule.
+	return m.wide() && m.wideDetail && !m.gridTab() && m.tab != tabTimeline && m.current() != nil
 }
 
 // splitBody renders list and detail side by side, both clipped to the height
@@ -385,6 +387,9 @@ func (m *Model) list(avail int) string {
 	}
 	if m.tab == tabWeek {
 		return m.weekGrid(avail)
+	}
+	if m.tab == tabTimeline {
+		return m.timelineView(avail)
 	}
 	if len(m.rows) == 0 {
 		return styMuted.Render("  (표시할 항목 없음 — a 로 추가)")

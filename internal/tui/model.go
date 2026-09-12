@@ -20,13 +20,14 @@ const (
 	tabToday tab = iota
 	tabWeek
 	tabBoard
+	tabTimeline
 	tabProjects
 	tabAll
 )
 
-const tabCount = 5
+const tabCount = 6
 
-var tabNames = []string{"Today", "Week", "Board", "Projects", "All"}
+var tabNames = []string{"Today", "Week", "Board", "Timeline", "Projects", "All"}
 
 // boardColumns are the lanes of the kanban view. Terminal states are summarised
 // in the header instead of taking a column: a done pile that grows forever
@@ -167,6 +168,12 @@ type Model struct {
 	// weekLoads is the planned work per weekday, parallel to weekDays.
 	weekLoads []service.DayLoad
 
+	// tlStart is the first day of the Timeline window; the zero Date means
+	// "이번 주" and is resolved on the first draw. tlUndated counts the open
+	// work the chart cannot place, which the tab reports instead of hiding.
+	tlStart   domain.Date
+	tlUndated int
+
 	// projDrill is true while the Projects tab shows one project's tasks;
 	// projSlug may legitimately be empty (the "미지정" bucket).
 	projDrill bool
@@ -276,6 +283,9 @@ func (m *Model) reload() {
 		return
 	case tabBoard:
 		m.reloadBoard(today)
+		return
+	case tabTimeline:
+		m.reloadTimeline(today)
 		return
 	case tabProjects:
 		if m.projDrill {

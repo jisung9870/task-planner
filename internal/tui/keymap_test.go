@@ -29,7 +29,7 @@ func TestFooterKeysAppearInFullHelp(t *testing.T) {
 		if !ok {
 			t.Fatalf("푸터 항목 형식이 %q", seg)
 		}
-		if key == "?" || key == "1-5" {
+		if key == "?" || key == "1-6" {
 			continue // the help screen itself, and the tab row
 		}
 		if !strings.Contains(helpFull, key) {

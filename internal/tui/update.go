@@ -21,6 +21,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		if m.tab == tabTimeline {
+			// The window length is derived from the width, so the rows the
+			// chart selected are stale as soon as the terminal is resized.
+			m.reload()
+		}
 		return m, nil
 	case editorDoneMsg:
 		m.handleEditorDone(msg)
@@ -244,12 +249,20 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.detailOffset--
 		}
 	case "left", "h":
-		if m.gridTab() {
+		if m.tab == tabTimeline {
+			m.shiftTimeline(-1)
+		} else if m.gridTab() {
 			m.moveColumn(-1)
 		}
 	case "right", "l":
-		if m.gridTab() {
+		if m.tab == tabTimeline {
+			m.shiftTimeline(1)
+		} else if m.gridTab() {
 			m.moveColumn(1)
+		}
+	case "t":
+		if m.tab == tabTimeline {
+			m.shiftTimeline(0)
 		}
 	case "H":
 		m.moveCard(-1)
@@ -273,7 +286,7 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cursor = len(m.rows) - 1
 			m.clampCursor()
 		}
-	case "1", "2", "3", "4", "5":
+	case "1", "2", "3", "4", "5", "6":
 		m.switchTab(tab(int(msg.String()[0] - '1')))
 	case "tab":
 		m.switchTab((m.tab + 1) % tabCount)
@@ -307,7 +320,7 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		if m.wide() && m.tab != tabBoard {
+		if m.wide() && m.tab != tabBoard && m.tab != tabTimeline {
 			m.wideDetail = !m.wideDetail
 		} else {
 			m.detail = !m.detail
