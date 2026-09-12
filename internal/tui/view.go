@@ -306,6 +306,11 @@ func (m *Model) tabs() string {
 	if m.projDrill {
 		suffix = append(suffix, "프로젝트:"+query.ProjectLabel(m.projSlug))
 	}
+	// A grid showing another week looks exactly like one showing this week -
+	// say which, and how to get back.
+	if m.tab == tabWeek && !m.wkStart.IsZero() {
+		suffix = append(suffix, m.weekRef().WeekLabel()+" (t 로 이번 주)")
+	}
 	if len(suffix) > 0 {
 		line += "   " + styMuted.Render(strings.Join(suffix, "  "))
 	}

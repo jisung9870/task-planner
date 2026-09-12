@@ -260,10 +260,12 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else if m.gridTab() {
 			m.moveColumn(1)
 		}
+	case ",", "<":
+		m.pageWindow(-1)
+	case ".", ">":
+		m.pageWindow(1)
 	case "t":
-		if m.tab == tabTimeline {
-			m.shiftTimeline(0)
-		}
+		m.pageWindow(0)
 	case "H":
 		m.moveCard(-1)
 	case "L":
@@ -501,6 +503,19 @@ func (m *Model) handleEditorDone(msg editorDoneMsg) {
 		m.setStatus("편집 반영 %s  %s", t.ShortID(), t.Title)
 	} else {
 		m.setStatus("편집 반영됨")
+	}
+}
+
+// pageWindow moves the date window of whichever tab has one; 0 returns to
+// 이번 주. Week and Timeline page with the same keys because they are the same
+// question asked twice - a second set of keys would only be a second thing to
+// remember.
+func (m *Model) pageWindow(n int) {
+	switch m.tab {
+	case tabWeek:
+		m.shiftWeek(n)
+	case tabTimeline:
+		m.shiftTimeline(n)
 	}
 }
 

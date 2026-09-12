@@ -102,7 +102,7 @@ func (s *Service) WeekList(ref domain.Date) []*domain.Task {
 	if ref.IsZero() {
 		ref = s.Today()
 	}
-	return query.Week(s.All(), ref)
+	return query.Week(s.All(), ref, s.Today())
 }
 
 // OpenList returns everything still needing attention.

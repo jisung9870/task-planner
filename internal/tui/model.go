@@ -167,6 +167,9 @@ type Model struct {
 	weekDays []domain.Date
 	// weekLoads is the planned work per weekday, parallel to weekDays.
 	weekLoads []service.DayLoad
+	// wkStart is the Monday of the week the grid shows; the zero Date means
+	// 이번 주 and is what the tab returns to with t.
+	wkStart domain.Date
 
 	// tlStart is the first day of the Timeline window; the zero Date means
 	// "이번 주" and is resolved on the first draw. tlUndated counts the open
@@ -279,7 +282,7 @@ func (m *Model) reload() {
 	case tabToday:
 		ts = m.svc.TodayList()
 	case tabWeek:
-		m.reloadWeek(today)
+		m.reloadWeek(m.weekRef())
 		return
 	case tabBoard:
 		m.reloadBoard(today)
@@ -350,20 +353,49 @@ const weekLaneUnassigned = 7
 // reloadWeek buckets the week's work by day, plus a lane for tasks that belong
 // to the week but have no date inside it. This is the view that finally uses
 // query.WeekDays - a status-grouped list cannot show how the week is laid out.
-func (m *Model) reloadWeek(today domain.Date) {
-	ts := m.svc.WeekList(today)
+func (m *Model) reloadWeek(ref domain.Date) {
+	ts := m.svc.WeekList(ref)
 	if m.filter != nil && !m.filter.Empty() {
 		ts = m.svc.ApplyFilter(m.filter, ts)
 	}
-	buckets, days := query.WeekDays(ts, today)
+	buckets, days := query.WeekDays(ts, ref)
 	m.weekDays = days
-	m.weekLoads = m.svc.WeekLoad(today)
+	m.weekLoads = m.svc.WeekLoad(ref)
 	m.cols = make([][]*domain.Task, 8)
 	for i, d := range days {
 		m.cols[i] = buckets[d]
 	}
 	m.cols[weekLaneUnassigned] = buckets[domain.Date{}]
 	m.clampBoard()
+}
+
+// weekRef is the date the Week grid is drawn around.
+func (m *Model) weekRef() domain.Date {
+	if m.wkStart.IsZero() {
+		return m.svc.Today()
+	}
+	return m.wkStart
+}
+
+// shiftWeek pages the grid by whole weeks; 0 returns to 이번 주. The cursor
+// goes back to the first column: the day the eye starts on is Monday, not
+// whichever column happened to be selected in the week just left.
+func (m *Model) shiftWeek(n int) {
+	if n == 0 {
+		m.wkStart = domain.Date{}
+	} else {
+		m.wkStart = m.weekRef().WeekStart().AddDays(7 * n)
+	}
+	m.colCursor, m.rowCursor = 0, 0
+	m.reload()
+	m.clampBoard()
+	ref := m.weekRef()
+	if m.wkStart.IsZero() {
+		m.setStatus("이번 주 (%s)", ref.WeekLabel())
+		return
+	}
+	m.setStatus("%s  %s ~ %s", ref.WeekLabel(),
+		ref.WeekStart(), ref.WeekStart().AddDays(6))
 }
 
 // fullTask returns the selected task with its body, cached for the frame. The

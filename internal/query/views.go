@@ -33,12 +33,18 @@ func Today(all []*domain.Task, today domain.Date) []*domain.Task {
 }
 
 // Week answers "이번 주에 뭐가 남았지" for the ISO week containing ref.
-func Week(all []*domain.Task, ref domain.Date) []*domain.Task {
+//
+// today is separate from ref because the grid can be paged to another week:
+// 진행중과 마감초과는 "지금" 의 사정이라 보고 있는 주가 오늘을 품을 때만
+// 따라온다. 다음 주를 보는데 이번 주 잔업이 얹히면 그건 계획이 아니라
+// 오늘의 목록이다.
+func Week(all []*domain.Task, ref, today domain.Date) []*domain.Task {
 	start := ref.WeekStart()
 	end := start.AddDays(6)
+	current := !today.IsZero() && !today.Before(start) && !today.After(end)
 	var out []*domain.Task
 	for _, t := range all {
-		if t.Status == domain.StatusDoing {
+		if t.Status == domain.StatusDoing && current {
 			out = append(out, t)
 			continue
 		}
@@ -50,7 +56,7 @@ func Week(all []*domain.Task, ref domain.Date) []*domain.Task {
 			continue
 		}
 		// Anything overdue keeps showing up until it is dealt with.
-		if t.Overdue(ref) {
+		if current && t.Overdue(today) {
 			out = append(out, t)
 		}
 	}

@@ -87,7 +87,7 @@ func TestWeekCoversISOWeekAndOverdue(t *testing.T) {
 		task("next-week", domain.StatusTodo, "2026-09-14", ""),
 		task("overdue", domain.StatusTodo, "", "2026-08-30"),
 	}
-	got := Week(all, today)
+	got := Week(all, today, today)
 	for _, want := range []string{"in-week", "week-edge-mon", "week-edge-sun", "overdue"} {
 		if !has(got, want) {
 			t.Errorf("%s 가 Week 에 없음: %v", want, ids(got))
@@ -190,11 +190,35 @@ func TestWeekDaysKeepsUndatedInUnassigned(t *testing.T) {
 	}
 }
 
+// Paging to another week must not drag today's leftovers along: 다음 주 화면은
+// 다음 주의 계획이지 오늘의 잔업 목록이 아니다.
+func TestWeekDropsTodaysLeftoversOnOtherWeeks(t *testing.T) {
+	all := []*domain.Task{
+		task("overdue", domain.StatusTodo, "", "2026-08-30"),
+		task("floating-doing", domain.StatusDoing, "", ""),
+		task("next-week", domain.StatusTodo, "2026-09-14", ""),
+	}
+	next := domain.NewDate(2026, time.September, 14)
+	got := Week(all, next, today)
+	if !has(got, "next-week") {
+		t.Errorf("다음 주 항목이 빠짐: %v", ids(got))
+	}
+	for _, gone := range []string{"overdue", "floating-doing"} {
+		if has(got, gone) {
+			t.Errorf("%s 가 다음 주까지 따라옴: %v", gone, ids(got))
+		}
+	}
+	// 오늘이 든 주에서는 그대로 따라와야 한다.
+	if now := Week(all, today, today); !has(now, "overdue") || !has(now, "floating-doing") {
+		t.Errorf("이번 주에서 빠짐: %v", ids(now))
+	}
+}
+
 // A period that straddles the whole week has neither endpoint inside it; the
 // week still has to show it.
 func TestWeekIncludesSpanStraddlingTheWeek(t *testing.T) {
 	long := task("T-long", domain.StatusTodo, "2026-09-01", "2026-09-30")
-	got := Week([]*domain.Task{long}, today)
+	got := Week([]*domain.Task{long}, today, today)
 	if !has(got, "T-long") {
 		t.Fatalf("week = %v", ids(got))
 	}
