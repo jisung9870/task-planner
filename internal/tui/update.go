@@ -103,6 +103,10 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.gridTab() {
 			m.moveColumn(1)
 		}
+	case "H":
+		m.moveCard(-1)
+	case "L":
+		m.moveCard(1)
 	case "[", "]":
 		m.shiftSpan(map[string]int{"[": -1, "]": 1}[msg.String()])
 	case "{", "}":
@@ -532,6 +536,38 @@ func (m *Model) bulkLabel(ts []*domain.Task, what string) string {
 		return what
 	}
 	return fmt.Sprintf("%s (%d건)", what, len(ts))
+}
+
+// moveCard moves the selected work one lane over: a status on the Board, a day
+// on Week. Moving the card is the gesture a board implies; h/l only moved the
+// cursor, which left the actual move to keys you had to already know.
+func (m *Model) moveCard(delta int) {
+	if !m.gridTab() {
+		return
+	}
+	if m.tab == tabWeek {
+		m.shiftSpan(delta)
+		return
+	}
+	ts := m.targets()
+	if len(ts) == 0 {
+		return
+	}
+	to := domain.Status("")
+	for i, st := range boardColumns {
+		if st == ts[0].Status {
+			j := i + delta
+			if j < 0 || j >= len(boardColumns) {
+				return
+			}
+			to = boardColumns[j]
+			break
+		}
+	}
+	if to == "" {
+		return
+	}
+	m.applyStatus(to, nil)
 }
 
 // undo reverses the last action, leaving the cursor where it was - the point

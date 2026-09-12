@@ -631,7 +631,7 @@ func (m *Model) boardFooter(today domain.Date) string {
 			cancelled++
 		}
 	}
-	return styMuted.Render(fmt.Sprintf("오늘 완료 %d · 취소 %d   h/l 열 이동  j/k 카드 이동",
+	return styMuted.Render(fmt.Sprintf("오늘 완료 %d · 취소 %d   h/l 열 이동  H/L 카드를 옆 열로  j/k 카드 이동",
 		doneToday, cancelled))
 }
 
