@@ -78,6 +78,10 @@ type Model struct {
 	detail     bool
 	wideDetail bool
 
+	// helpOffset scrolls the help screen: it is longer than a short terminal,
+	// and a help text whose first half is unreachable is worse than none.
+	helpOffset int
+
 	// listOffset is the first visible row of the list viewport. The list used
 	// to render every row, which scrolled the header off screen past ~15 tasks.
 	listOffset int

@@ -32,7 +32,7 @@ func (m *Model) View() string {
 		return ""
 	}
 	if m.mode == modeHelp {
-		return helpFull + "\n\n" + styHelp.Render("아무 키나 누르면 돌아갑니다") + "\n"
+		return m.helpView()
 	}
 
 	var b strings.Builder
@@ -73,6 +73,37 @@ func (m *Model) View() string {
 	b.WriteString("\n")
 	b.WriteString(m.footer())
 	return b.String()
+}
+
+// helpView windows the help text to the terminal height. The text is longer
+// than a 30-row terminal, and the keys it describes are at the top - clipping
+// from the bottom without a way to scroll would hide exactly what is needed.
+func (m *Model) helpView() string {
+	lines := helpLines()
+	h := m.height
+	if h <= 0 {
+		h = 24
+	}
+	avail := h - 2 // the footer line plus its blank separator
+	if avail < 3 {
+		avail = 3
+	}
+	if max := len(lines) - avail; m.helpOffset > max {
+		m.helpOffset = max
+	}
+	if m.helpOffset < 0 {
+		m.helpOffset = 0
+	}
+	end := m.helpOffset + avail
+	if end > len(lines) {
+		end = len(lines)
+	}
+	foot := "아무 키나 누르면 돌아갑니다"
+	if len(lines) > avail {
+		foot = fmt.Sprintf("↑/↓ 스크롤 (%d-%d / %d줄)  ·  다른 키를 누르면 돌아갑니다",
+			m.helpOffset+1, end, len(lines))
+	}
+	return strings.Join(lines[m.helpOffset:end], "\n") + "\n" + styHelp.Render(foot) + "\n"
 }
 
 // wide reports whether the terminal can afford a side-by-side split.

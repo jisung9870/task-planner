@@ -1,8 +1,14 @@
 package tui
 
+import "strings"
+
 // helpLine is the persistent footer. The TUI has no menus, so this line is the
 // entire discovery surface for common actions.
 const helpLine = "a 추가  e 편집  space 상태  s 진행  d 완료  b 보류  D 기간  p 프로젝트  [ ] 이동  enter 상세  r 새로고침  1-5 탭  q 종료  ? 도움말"
+
+// helpLines splits the help text once per frame; it is short enough that the
+// allocation does not matter and a cached copy would drift.
+func helpLines() []string { return strings.Split(strings.TrimRight(helpFull, "\n"), "\n") }
 
 // helpFull is shown by ?.
 const helpFull = `키

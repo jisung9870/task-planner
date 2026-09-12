@@ -45,13 +45,33 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case m.mode.prompting():
 			return m.updatePrompt(msg)
 		case m.mode == modeHelp:
-			m.mode = modeNormal
+			m.updateHelp(msg)
 			return m, nil
 		default:
 			return m.updateNormal(msg)
 		}
 	}
 	return m, nil
+}
+
+// updateHelp scrolls the help screen; any other key closes it.
+func (m *Model) updateHelp(msg tea.KeyMsg) {
+	switch msg.String() {
+	case "down", "j":
+		m.helpOffset++
+	case "up", "k":
+		m.helpOffset--
+	case " ", "pgdown", "ctrl+f":
+		m.helpOffset += 10
+	case "pgup", "ctrl+b":
+		m.helpOffset -= 10
+	case "g", "home":
+		m.helpOffset = 0
+	case "G", "end":
+		m.helpOffset = len(helpLines())
+	default:
+		m.mode, m.helpOffset = modeNormal, 0
+	}
 }
 
 func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
