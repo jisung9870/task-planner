@@ -50,6 +50,7 @@ func newRoot() *cobra.Command {
 		newEditCmd(),
 		newSetCmd(),
 		newNoteCmd(),
+		newNextCmd(),
 		newArchiveCmd(),
 		newRolloverCmd(),
 		newReportCmd(),

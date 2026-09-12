@@ -198,6 +198,8 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.startPrompt(modeProject, "프로젝트: ", t.Project)
 			return m, textinput.Blink
 		}
+	case "!":
+		m.jumpNext()
 	case "N":
 		if t := m.current(); t != nil {
 			m.startPrompt(modeNote, "메모: ", "")
@@ -600,6 +602,45 @@ func (m *Model) addNote(text string) {
 	m.reload()
 	m.selectID(res.Task.ID)
 	m.setStatus("%s 메모 추가", res.Task.ShortID())
+}
+
+// jumpNext moves the cursor onto the task worth doing next and says why.
+func (m *Model) jumpNext() {
+	sugg := m.svc.NextUp(1)
+	if len(sugg) == 0 {
+		m.setStatus("지금 바로 할 수 있는 일이 없습니다 (전부 완료이거나 보류 중)")
+		return
+	}
+	sg := sugg[0]
+	if !m.hasTask(sg.Task.ID) {
+		// The suggestion may live outside the current tab; All shows everything.
+		m.switchTab(tabAll)
+	}
+	m.selectID(sg.Task.ID)
+	m.setStatus("다음: %s %s — %s", sg.Task.ShortID(), sg.Task.Title, sg.Reason)
+	if !m.hasTask(sg.Task.ID) {
+		m.status += "  · 현재 필터에 가려져 있습니다 (esc 로 해제)"
+	}
+}
+
+// hasTask reports whether the current view contains a task.
+func (m *Model) hasTask(id string) bool {
+	if m.gridTab() {
+		for _, col := range m.cols {
+			for _, t := range col {
+				if t.ID == id {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	for _, r := range m.rows {
+		if r.task != nil && r.task.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 // cycleProject advances the project status (active → paused → done).
