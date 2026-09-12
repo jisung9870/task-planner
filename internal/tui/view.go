@@ -393,11 +393,28 @@ func (m *Model) ensureCursorVisible(avail int) {
 	}
 }
 
-func (m *Model) renderTaskRow(i int, t *domain.Task, today domain.Date) string {
-	cursor := "  "
-	if i == m.cursor {
-		cursor = stySelected.Render("▸ ")
+// selMark is the two-cell prefix every selectable line carries: the cursor in
+// the first cell, the multi-select tick in the second. Encoding both in a
+// fixed width keeps every column below it aligned.
+func selMark(cursor, marked bool) string {
+	c, k := " ", " "
+	if cursor {
+		c = "▸"
 	}
+	if marked {
+		k = "✓"
+	}
+	switch {
+	case cursor:
+		return stySelected.Render(c + k)
+	case marked:
+		return styDoing.Render(c + k)
+	}
+	return c + k
+}
+
+func (m *Model) renderTaskRow(i int, t *domain.Task, today domain.Date) string {
+	cursor := selMark(i == m.cursor, m.marked[t.ID])
 	glyph := t.Status.Glyph()
 	body := fmt.Sprintf("%s %s %s", glyph, pad(t.ShortID(), 5), t.Title)
 
@@ -557,10 +574,7 @@ func (m *Model) boardColumn(idx int, st domain.Status, width, maxCards int, toda
 // after the first is a continuation cell, marked so the grid reads as one bar
 // rather than as five separate tasks.
 func (m *Model) card(t *domain.Task, day domain.Date, width int, selected bool, today domain.Date) string {
-	marker := "  "
-	if selected {
-		marker = stySelected.Render("▸ ")
-	}
+	marker := selMark(selected, m.marked[t.ID])
 	cont := !day.IsZero() && t.HasSpan() && day.After(t.SpanStart())
 	title := t.Title
 	if cont {
@@ -756,10 +770,7 @@ func (m *Model) weekLane(lane []*domain.Task, width, laneMax int) string {
 	end := min(start+laneMax, len(lane))
 	for r := start; r < end; r++ {
 		t := lane[r]
-		cursor := "  "
-		if m.colCursor == weekLaneUnassigned && r == m.rowCursor {
-			cursor = stySelected.Render("▸ ")
-		}
+		cursor := selMark(m.colCursor == weekLaneUnassigned && r == m.rowCursor, m.marked[t.ID])
 		line := fmt.Sprintf("%s %s %s", t.Status.Glyph(), pad(t.ShortID(), 5), t.Title)
 		if t.Project != "" {
 			line += "  " + styMuted.Render(t.Project)
@@ -798,10 +809,7 @@ func (m *Model) weekStacked(width int, today domain.Date) string {
 }
 
 func (m *Model) renderProjRow(i int, r row) string {
-	cursor := "  "
-	if i == m.cursor {
-		cursor = stySelected.Render("▸ ")
-	}
+	cursor := selMark(i == m.cursor, false)
 	c := r.proj
 	line := fmt.Sprintf("%s %s %s 열림 %-3d 진행 %-3d 완료 %-3d",
 		pad(query.ProjectLabel(c.Slug), 16), pad(projStatusMark(c), 6),
@@ -968,6 +976,14 @@ func (m *Model) footer() string {
 		msg = styErr.Render("! " + m.errMsg)
 	case m.status != "":
 		msg = styStatus.Render(m.status)
+	}
+	if n := len(m.marked); n > 0 {
+		mark := styDoing.Render(fmt.Sprintf("✓ %d건 선택됨", n))
+		if msg == "" {
+			msg = mark
+		} else {
+			msg = mark + styMuted.Render("  ·  ") + msg
+		}
 	}
 	if msg != "" {
 		return msg + "\n" + styHelp.Render(helpLine)

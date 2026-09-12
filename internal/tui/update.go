@@ -129,6 +129,9 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.switchTab((m.tab + tabCount - 1) % tabCount)
 	case "esc":
 		switch {
+		case len(m.marked) > 0:
+			m.marked = map[string]bool{}
+			m.setStatus("선택 해제")
 		case m.detail:
 			m.detail = false
 		case m.splitActive():
@@ -168,26 +171,35 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.startPrompt(modeSearch, "필터: ", m.search)
 		return m, textinput.Blink
 	case " ":
-		if t := m.current(); t != nil {
-			m.apply(t, domain.NextStatus(t.Status), nil)
-		}
+		m.applyNext()
 	case "s":
 		if p := m.currentProj(); p != nil {
 			m.cycleProject(p)
 			break
 		}
-		m.applyCurrent(domain.StatusDoing)
+		m.applyStatus(domain.StatusDoing, nil)
 	case "d":
-		m.applyCurrent(domain.StatusDone)
+		m.applyStatus(domain.StatusDone, nil)
 	case "x":
-		m.applyCurrent(domain.StatusCancelled)
+		m.applyStatus(domain.StatusCancelled, nil)
 	case "u":
-		m.applyCurrent(domain.StatusTodo)
+		m.applyStatus(domain.StatusTodo, nil)
 	case "b":
 		if t := m.current(); t != nil {
 			m.startPrompt(modeBlock, "보류 사유: ", t.BlockedReason)
 			return m, textinput.Blink
 		}
+	case "m":
+		m.toggleMark()
+	case "M":
+		if len(m.marked) == 0 {
+			break
+		}
+		n := len(m.marked)
+		m.marked = map[string]bool{}
+		m.setStatus("선택 %d건 해제", n)
+	case "ctrl+z":
+		m.undo()
 	case "e":
 		if p := m.currentProj(); p != nil {
 			return m, m.openProjectEditor(p)
@@ -196,20 +208,6 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "p":
 		if t := m.current(); t != nil {
 			m.startPrompt(modeProject, "프로젝트: ", t.Project)
-			return m, textinput.Blink
-		}
-	case "ctrl+z":
-		m.undo()
-	case "!":
-		m.jumpNext()
-	case "N":
-		if t := m.current(); t != nil {
-			m.startPrompt(modeNote, "메모: ", "")
-			return m, textinput.Blink
-		}
-	case "n":
-		if m.tab == tabProjects && !m.projDrill {
-			m.startPrompt(modeNewProject, "새 프로젝트 (slug [이름]): ", "")
 			return m, textinput.Blink
 		}
 	case "D":
@@ -225,6 +223,18 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.startPrompt(modeSpan, "기간: ", t.Span().String())
 			return m, textinput.Blink
 		}
+	case "n":
+		if m.tab == tabProjects && !m.projDrill {
+			m.startPrompt(modeNewProject, "새 프로젝트 (slug [이름]): ", "")
+			return m, textinput.Blink
+		}
+	case "N":
+		if t := m.current(); t != nil {
+			m.startPrompt(modeNote, "메모: ", "")
+			return m, textinput.Blink
+		}
+	case "!":
+		m.jumpNext()
 	}
 	return m, nil
 }
@@ -378,13 +388,11 @@ func (m *Model) updatePrompt(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case modeNote:
 			m.addNote(value)
 		case modeBlock:
-			if t := m.current(); t != nil {
-				if value == "" {
-					m.setErr(domain.ErrBlockedNeedsReason)
-					return m, nil
-				}
-				m.apply(t, domain.StatusBlocked, &domain.BlockInfo{Reason: value})
+			if value == "" {
+				m.setErr(domain.ErrBlockedNeedsReason)
+				return m, nil
 			}
+			m.applyStatus(domain.StatusBlocked, &domain.BlockInfo{Reason: value})
 		}
 		return m, nil
 	}
@@ -441,37 +449,106 @@ func (m *Model) capture(title string) {
 	}
 }
 
-func (m *Model) applyCurrent(to domain.Status) {
-	if t := m.current(); t != nil {
-		m.apply(t, to, nil)
+// applyNext cycles each target through its own next status; a bulk cycle over
+// tasks in different states is still one step per task.
+func (m *Model) applyNext() {
+	ts := m.targets()
+	if len(ts) == 0 {
+		return
+	}
+	m.mutate(m.bulkLabel(ts, "상태 변경"), ts, func(t *domain.Task) (*service.Result, error) {
+		return m.svc.SetStatus(t.ID, domain.NextStatus(t.Status), nil)
+	})
+}
+
+// applyStatus moves every target to one status.
+func (m *Model) applyStatus(to domain.Status, block *domain.BlockInfo) {
+	ts := m.targets()
+	if len(ts) == 0 {
+		return
+	}
+	if to == domain.StatusBlocked && block == nil {
+		// One reason for the whole selection: a hold that needs five different
+		// reasons is five holds, and the prompt asks once.
+		m.startPrompt(modeBlock, "보류 사유: ", ts[0].BlockedReason)
+		return
+	}
+	m.mutate(m.bulkLabel(ts, to.Label()), ts, func(t *domain.Task) (*service.Result, error) {
+		return m.svc.SetStatus(t.ID, to, block)
+	})
+}
+
+// mutate runs one change per target inside a single undo step, then reports
+// what happened in one status line.
+func (m *Model) mutate(label string, ts []*domain.Task, fn func(*domain.Task) (*service.Result, error)) {
+	var last *service.Result
+	var warnings []string
+	n := 0
+	err := m.svc.Undoable(label, func() error {
+		for _, t := range ts {
+			res, err := fn(t)
+			if err != nil {
+				return err
+			}
+			last, n = res, n+1
+			warnings = append(warnings, res.Warnings...)
+			if res.Next != nil {
+				warnings = append(warnings,
+					fmt.Sprintf("다음 회차 %s (%s)", res.Next.ShortID(), res.Next.Scheduled))
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		m.setErr(err)
+	}
+	if n == 0 {
+		return
+	}
+	m.reload()
+	if last != nil {
+		m.selectID(last.Task.ID)
+	}
+	if err == nil {
+		if n == 1 && last != nil {
+			m.setStatus("%s  %s", last.Task.ShortID(), label)
+		} else {
+			m.setStatus("%d건  %s", n, label)
+		}
+	}
+	// Marks are consumed by the action that used them; leaving them set makes
+	// the next keystroke act on a selection the user has stopped thinking about.
+	if len(m.marked) > 0 {
+		m.marked = map[string]bool{}
+	}
+	for _, w := range warnings {
+		m.status += "  · " + w
 	}
 }
 
-func (m *Model) apply(t *domain.Task, to domain.Status, block *domain.BlockInfo) {
-	if to == domain.StatusBlocked && block == nil {
-		m.startPrompt(modeBlock, "보류 사유: ", t.BlockedReason)
-		return
+// bulkLabel names an undo step and the status line after it.
+func (m *Model) bulkLabel(ts []*domain.Task, what string) string {
+	if len(ts) == 1 {
+		return what
 	}
-	var res *service.Result
-	err := m.svc.Undoable(to.Label(), func() error {
-		var e error
-		res, e = m.svc.SetStatus(t.ID, to, block)
-		return e
-	})
+	return fmt.Sprintf("%s (%d건)", what, len(ts))
+}
+
+// undo reverses the last action, leaving the cursor where it was - the point
+// of undo is to carry on from where the mistake happened.
+func (m *Model) undo() {
+	id := ""
+	if t := m.current(); t != nil {
+		id = t.ID
+	}
+	label, err := m.svc.Undo()
 	if err != nil {
 		m.setErr(err)
 		return
 	}
-	id := res.Task.ID
 	m.reload()
 	m.selectID(id)
-	m.setStatus("%s → %s", res.Task.ShortID(), to.Label())
-	if res.Next != nil {
-		m.status += fmt.Sprintf("  · 다음 회차 %s (%s)", res.Next.ShortID(), res.Next.Scheduled)
-	}
-	for _, w := range res.Warnings {
-		m.status += "  · " + w
-	}
+	m.setStatus("되돌림: %s", label)
 }
 
 // selectID keeps the cursor on the same task across a reload. On a grid tab a
@@ -499,52 +576,44 @@ func (m *Model) selectID(id string) {
 	m.clampCursor()
 }
 
-// shiftSpan slides the selected task's whole 진행 기간 by a day, keeping its
-// length - the re-planning gesture ("이건 하루 밀자"). An unscheduled task gets
-// today first, so the first press pulls it out of the 미배정 lane instead of
-// jumping blindly.
+// shiftSpan slides each target's whole 진행 기간 by a day, keeping its length -
+// the re-planning gesture ("이건 하루 밀자"). An unscheduled task gets today
+// first, so the first press pulls it out of the 미배정 lane instead of jumping
+// blindly.
 func (m *Model) shiftSpan(days int) {
-	t := m.current()
-	if t == nil {
+	ts := m.targets()
+	if len(ts) == 0 {
 		return
 	}
-	var res *service.Result
-	err := m.svc.Undoable("기간 이동", func() error {
-		var e error
-		res, e = m.svc.ShiftSpan(t.ID, days)
-		return e
+	verb := "기간 하루 뒤로"
+	if days < 0 {
+		verb = "기간 하루 앞으로"
+	}
+	m.spanMutate(m.bulkLabel(ts, verb), ts, func(t *domain.Task) (*service.Result, error) {
+		return m.svc.ShiftSpan(t.ID, days)
 	})
-	if err != nil {
-		m.setErr(err)
-		return
-	}
-	m.afterSpanChange(res.Task, "이동")
 }
 
 // resizeSpan moves only the end of the period: the task starts when it started
 // and now takes longer (or less).
 func (m *Model) resizeSpan(days int) {
-	t := m.current()
-	if t == nil {
+	ts := m.targets()
+	if len(ts) == 0 {
 		return
 	}
-	var res *service.Result
-	err := m.svc.Undoable("기간 조정", func() error {
-		var e error
-		res, e = m.svc.ResizeSpan(t.ID, days)
-		return e
+	verb := "기간 늘림"
+	if days < 0 {
+		verb = "기간 줄임"
+	}
+	m.spanMutate(m.bulkLabel(ts, verb), ts, func(t *domain.Task) (*service.Result, error) {
+		return m.svc.ResizeSpan(t.ID, days)
 	})
-	if err != nil {
-		m.setErr(err)
-		return
-	}
-	m.afterSpanChange(res.Task, "조정")
 }
 
 // setSpan applies a typed period ("09-15~09-19").
 func (m *Model) setSpan(value string) {
-	t := m.current()
-	if t == nil || value == "" {
+	ts := m.targets()
+	if len(ts) == 0 || value == "" {
 		return
 	}
 	sp, err := m.svc.ParseSpan(value)
@@ -552,39 +621,36 @@ func (m *Model) setSpan(value string) {
 		m.setErr(err)
 		return
 	}
-	var res *service.Result
-	err = m.svc.Undoable("기간 설정", func() error {
-		var e error
-		res, e = m.svc.SetSpan(t.ID, sp)
-		return e
+	m.spanMutate(m.bulkLabel(ts, "기간 설정"), ts, func(t *domain.Task) (*service.Result, error) {
+		return m.svc.SetSpan(t.ID, sp)
 	})
-	if err != nil {
-		m.setErr(err)
+}
+
+// spanMutate is mutate() with a status line that states the resulting period,
+// which is the whole point of the keys that call it.
+func (m *Model) spanMutate(label string, ts []*domain.Task, fn func(*domain.Task) (*service.Result, error)) {
+	bulk := len(ts) > 1
+	m.mutate(label, ts, fn)
+	if bulk || m.errMsg != "" {
 		return
 	}
-	m.afterSpanChange(res.Task, "설정")
-}
-
-// afterSpanChange re-reads the view and reports the period in one line.
-func (m *Model) afterSpanChange(t *domain.Task, verb string) {
-	m.reload()
-	m.selectID(t.ID)
-	switch {
-	case t.SpanDays() == 0:
-		m.setStatus("%s 기간 해제", t.ShortID())
-	case t.HasSpan():
-		m.setStatus("%s 기간 %s~%s (%d일) %s", t.ShortID(),
-			t.SpanStart(), t.SpanEnd(), t.SpanDays(), verb)
-	default:
-		d := t.SpanStart()
-		m.setStatus("%s 예정 → %s (%s) %s", t.ShortID(), d, d.WeekdayKO(), verb)
+	if t := m.current(); t != nil {
+		switch {
+		case t.SpanDays() == 0:
+			m.setStatus("%s 기간 해제", t.ShortID())
+		case t.HasSpan():
+			m.setStatus("%s 기간 %s~%s (%d일)", t.ShortID(), t.SpanStart(), t.SpanEnd(), t.SpanDays())
+		default:
+			d := t.SpanStart()
+			m.setStatus("%s 예정 → %s (%s)", t.ShortID(), d, d.WeekdayKO())
+		}
 	}
 }
 
-// setProject re-homes the selected task. "-" clears the assignment.
+// setProject re-homes every target. "-" clears the assignment.
 func (m *Model) setProject(value string) {
-	t := m.current()
-	if t == nil {
+	ts := m.targets()
+	if len(ts) == 0 {
 		return
 	}
 	slug := value
@@ -593,23 +659,14 @@ func (m *Model) setProject(value string) {
 	} else if slug != "" {
 		slug = service.ProjectSlug(slug)
 	}
-	var res *service.Result
-	err := m.svc.Undoable("프로젝트 지정", func() error {
-		var e error
-		res, e = m.svc.Edit(t.ID, service.EditInput{Project: &slug})
-		return e
+	label := "프로젝트 해제"
+	if slug != "" {
+		label = "프로젝트 → " + slug
+	}
+	m.mutate(m.bulkLabel(ts, label), ts, func(t *domain.Task) (*service.Result, error) {
+		s := slug
+		return m.svc.Edit(t.ID, service.EditInput{Project: &s})
 	})
-	if err != nil {
-		m.setErr(err)
-		return
-	}
-	m.reload()
-	m.selectID(res.Task.ID)
-	if slug == "" {
-		m.setStatus("%s 프로젝트 해제", res.Task.ShortID())
-		return
-	}
-	m.setStatus("%s → 프로젝트 %s", res.Task.ShortID(), slug)
 }
 
 // newProject creates projects/<slug>/project.md. The prompt takes "slug 이름"
@@ -634,43 +691,16 @@ func (m *Model) newProject(value string) {
 	m.setStatus("프로젝트 추가됨 %s  %s", p.Slug, p.Display())
 }
 
-// addNote appends a timestamped line to the selected task's note section -
-// the thing you want to write down at the moment you hear it.
+// addNote appends a timestamped line to every target's note section - the
+// thing you want to write down at the moment you hear it.
 func (m *Model) addNote(text string) {
-	t := m.current()
-	if t == nil || text == "" {
+	ts := m.targets()
+	if len(ts) == 0 || text == "" {
 		return
 	}
-	var res *service.Result
-	err := m.svc.Undoable("메모 추가", func() error {
-		var e error
-		res, e = m.svc.AddNote(t.ID, text)
-		return e
+	m.mutate(m.bulkLabel(ts, "메모 추가"), ts, func(t *domain.Task) (*service.Result, error) {
+		return m.svc.AddNote(t.ID, text)
 	})
-	if err != nil {
-		m.setErr(err)
-		return
-	}
-	m.reload()
-	m.selectID(res.Task.ID)
-	m.setStatus("%s 메모 추가", res.Task.ShortID())
-}
-
-// undo reverses the last action, leaving the cursor where it was - the point
-// of undo is to carry on from where the mistake happened.
-func (m *Model) undo() {
-	id := ""
-	if t := m.current(); t != nil {
-		id = t.ID
-	}
-	label, err := m.svc.Undo()
-	if err != nil {
-		m.setErr(err)
-		return
-	}
-	m.reload()
-	m.selectID(id)
-	m.setStatus("되돌림: %s", label)
 }
 
 // jumpNext moves the cursor onto the task worth doing next and says why.

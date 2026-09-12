@@ -89,6 +89,10 @@ type Model struct {
 	// to render every row, which scrolled the header off screen past ~15 tasks.
 	listOffset int
 
+	// marked holds the ids selected for a bulk action, keyed by id so the
+	// selection survives a reload that reorders or re-buckets rows.
+	marked map[string]bool
+
 	// cols holds the lanes of grid tabs (Board: 상태 3열, Week: 요일 7열 +
 	// 미배정); colCursor/rowCursor address the selected card.
 	cols      [][]*domain.Task
@@ -124,7 +128,8 @@ func New(svc *service.Service) *Model {
 	in.Prompt = ""
 	in.PromptStyle = styPrompt
 	in.CharLimit = 400
-	m := &Model{svc: svc, input: in, wideDetail: true}
+	m := &Model{svc: svc, input: in, wideDetail: true,
+		marked: map[string]bool{}}
 	// Rolling over before the first render means the morning view is already
 	// correct instead of showing yesterday's dates.
 	if rep, err := svc.RolloverIfEnabled(); err != nil {
@@ -238,6 +243,74 @@ func (m *Model) reloadWeek(today domain.Date) {
 	}
 	m.cols[weekLaneUnassigned] = buckets[domain.Date{}]
 	m.clampBoard()
+}
+
+// targets are the tasks the next action applies to: the marked set when there
+// is one, otherwise the task under the cursor. Every mutating key goes through
+// this, which is what makes marking work everywhere at once.
+func (m *Model) targets() []*domain.Task {
+	if len(m.marked) == 0 {
+		if t := m.current(); t != nil {
+			return []*domain.Task{t}
+		}
+		return nil
+	}
+	var out []*domain.Task
+	seen := map[string]bool{}
+	for _, t := range m.visibleTasks() {
+		if m.marked[t.ID] && !seen[t.ID] {
+			seen[t.ID] = true
+			out = append(out, t)
+		}
+	}
+	// A marked task can be filtered out of the current view; it is still
+	// marked, and dropping it silently would make bulk actions unpredictable.
+	for id := range m.marked {
+		if seen[id] {
+			continue
+		}
+		if t, err := m.svc.Resolve(id); err == nil {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// visibleTasks lists the tasks of the current view in display order.
+func (m *Model) visibleTasks() []*domain.Task {
+	var out []*domain.Task
+	if m.gridTab() {
+		for _, col := range m.cols {
+			out = append(out, col...)
+		}
+		return out
+	}
+	for _, r := range m.rows {
+		if r.task != nil {
+			out = append(out, r.task)
+		}
+	}
+	return out
+}
+
+// toggleMark selects or deselects the task under the cursor.
+func (m *Model) toggleMark() {
+	t := m.current()
+	if t == nil {
+		return
+	}
+	if m.marked[t.ID] {
+		delete(m.marked, t.ID)
+	} else {
+		m.marked[t.ID] = true
+	}
+	m.setStatus("선택 %d건  (m 토글 · M 해제 · 상태·기간·프로젝트 키가 선택 전체에 적용)", len(m.marked))
+	if m.gridTab() {
+		m.rowCursor++
+		m.clampBoard()
+		return
+	}
+	m.moveCursor(1)
 }
 
 // gridTab reports whether the current tab uses the lane/card cursor model.
