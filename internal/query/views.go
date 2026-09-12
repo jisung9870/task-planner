@@ -42,7 +42,10 @@ func Week(all []*domain.Task, ref domain.Date) []*domain.Task {
 			out = append(out, t)
 			continue
 		}
-		if inRange(t.Scheduled, start, end) || inRange(t.Due, start, end) {
+		// The 진행 기간 as a whole decides membership, not just its endpoints:
+		// a task that started last week and is due next week is still work
+		// this week has to make room for.
+		if t.SpanOverlaps(start, end) {
 			out = append(out, t)
 			continue
 		}
@@ -55,9 +58,12 @@ func Week(all []*domain.Task, ref domain.Date) []*domain.Task {
 	return out
 }
 
-// WeekDays buckets a week list by the day it belongs to. Tasks with neither a
-// scheduled nor a due date inside the week land in the zero Date bucket, which
-// the view renders as "미배정".
+// WeekDays buckets a week list onto the days it occupies. A task with a
+// 진행 기간 (scheduled..due spanning several days) appears on every day of the
+// period that falls inside the week, which is what makes the grid a calendar
+// rather than a list of start dates. Tasks whose period misses the week
+// entirely - and undated ones - land in the zero Date bucket, rendered as
+// "미배정".
 func WeekDays(ts []*domain.Task, ref domain.Date) (map[domain.Date][]*domain.Task, []domain.Date) {
 	start := ref.WeekStart()
 	days := make([]domain.Date, 7)
@@ -66,15 +72,16 @@ func WeekDays(ts []*domain.Task, ref domain.Date) (map[domain.Date][]*domain.Tas
 	}
 	buckets := map[domain.Date][]*domain.Task{}
 	for _, t := range ts {
-		d := t.Scheduled
-		if d.IsZero() {
-			d = t.Due
+		placed := false
+		for _, d := range days {
+			if t.InSpan(d) {
+				buckets[d] = append(buckets[d], t)
+				placed = true
+			}
 		}
-		if d.IsZero() || d.Before(start) || d.After(start.AddDays(6)) {
+		if !placed {
 			buckets[domain.Date{}] = append(buckets[domain.Date{}], t)
-			continue
 		}
-		buckets[d] = append(buckets[d], t)
 	}
 	return buckets, days
 }
@@ -180,8 +187,4 @@ func CountDoing(all []*domain.Task) int {
 		}
 	}
 	return n
-}
-
-func inRange(d, start, end domain.Date) bool {
-	return !d.IsZero() && !d.Before(start) && !d.After(end)
 }

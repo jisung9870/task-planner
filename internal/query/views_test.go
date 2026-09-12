@@ -145,3 +145,63 @@ func TestSortPutsDoingAndOverdueFirst(t *testing.T) {
 		t.Fatalf("order = %v", ids(all))
 	}
 }
+
+// A 진행 기간 has to land on every day it covers, or the Week grid shows a
+// multi-day task as a single start-day card and the rest of the week looks free.
+func TestWeekDaysSpreadsSpanAcrossDays(t *testing.T) {
+	span := task("T-span", domain.StatusTodo, "2026-09-08", "2026-09-10") // 화~목
+	single := task("T-one", domain.StatusTodo, "2026-09-09", "")
+	buckets, days := WeekDays([]*domain.Task{span, single}, today)
+
+	for i, d := range days {
+		want := i >= 1 && i <= 3 // 월=0 이므로 화·수·목
+		if got := has(buckets[d], "T-span"); got != want {
+			t.Errorf("%s: 기간 태스크 포함 %v, want %v", d, got, want)
+		}
+	}
+	// 화요일에는 기간 태스크만, 수요일에는 둘 다.
+	if len(buckets[days[1]]) != 1 || len(buckets[days[2]]) != 2 || !has(buckets[days[2]], "T-one") {
+		t.Errorf("화 %v 수 %v", ids(buckets[days[1]]), ids(buckets[days[2]]))
+	}
+	if len(buckets[domain.Date{}]) != 0 {
+		t.Errorf("미배정 = %v", ids(buckets[domain.Date{}]))
+	}
+}
+
+// A period that runs into the week from outside still occupies the days it
+// covers inside it - the old code dropped such tasks into 미배정.
+func TestWeekDaysClipsSpanToTheWeek(t *testing.T) {
+	long := task("T-long", domain.StatusTodo, "2026-08-31", "2026-09-09")
+	buckets, days := WeekDays([]*domain.Task{long}, today)
+	for i, d := range days {
+		if got, want := has(buckets[d], "T-long"), i <= 2; got != want {
+			t.Errorf("%s: %v, want %v", d, got, want)
+		}
+	}
+}
+
+func TestWeekDaysKeepsUndatedInUnassigned(t *testing.T) {
+	doing := task("T-doing", domain.StatusDoing, "", "")
+	past := task("T-past", domain.StatusTodo, "2026-08-01", "2026-08-05")
+	buckets, _ := WeekDays([]*domain.Task{doing, past}, today)
+	lane := buckets[domain.Date{}]
+	if !has(lane, "T-doing") || !has(lane, "T-past") {
+		t.Fatalf("미배정 = %v", ids(lane))
+	}
+}
+
+// A period that straddles the whole week has neither endpoint inside it; the
+// week still has to show it.
+func TestWeekIncludesSpanStraddlingTheWeek(t *testing.T) {
+	long := task("T-long", domain.StatusTodo, "2026-09-01", "2026-09-30")
+	got := Week([]*domain.Task{long}, today)
+	if !has(got, "T-long") {
+		t.Fatalf("week = %v", ids(got))
+	}
+	buckets, days := WeekDays(got, today)
+	for _, d := range days {
+		if !has(buckets[d], "T-long") {
+			t.Errorf("%s 에 없음", d)
+		}
+	}
+}

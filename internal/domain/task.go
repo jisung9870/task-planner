@@ -144,6 +144,80 @@ func (t *Task) ElapsedActual(now time.Time) Duration {
 	return total
 }
 
+// SpanStart and SpanEnd bound the 진행 기간: scheduled 는 착수일, due 는 마감일
+// 이고 그 사이가 작업 기간이다. 한쪽만 있으면 그 날 하루짜리 일로 본다.
+func (t *Task) SpanStart() Date {
+	if !t.Scheduled.IsZero() {
+		return t.Scheduled
+	}
+	return t.Due
+}
+
+func (t *Task) SpanEnd() Date {
+	if !t.Due.IsZero() {
+		return t.Due
+	}
+	return t.Scheduled
+}
+
+// Span is the pair as a value, for prompts and edits.
+func (t *Task) Span() Span {
+	return Span{Start: t.Scheduled, End: t.Due, SetStart: true, SetEnd: true}
+}
+
+// HasSpan reports whether the task occupies more than a single day - the case
+// a calendar view has to draw across columns.
+func (t *Task) HasSpan() bool {
+	s, e := t.SpanStart(), t.SpanEnd()
+	return !s.IsZero() && !e.IsZero() && e.After(s)
+}
+
+// SpanDays counts the period inclusively; 0 when the task has no date at all.
+func (t *Task) SpanDays() int {
+	s, e := t.SpanStart(), t.SpanEnd()
+	if s.IsZero() || e.IsZero() {
+		return 0
+	}
+	if e.Before(s) {
+		return 1 // a due date before the start is a typo, not a negative period
+	}
+	return e.DaysUntil(s) + 1
+}
+
+// DayIndex is d's 1-based position inside the period, 0 when outside it.
+func (t *Task) DayIndex(d Date) int {
+	if !t.InSpan(d) {
+		return 0
+	}
+	return d.DaysUntil(t.SpanStart()) + 1
+}
+
+// InSpan reports whether d falls inside the working period.
+func (t *Task) InSpan(d Date) bool {
+	s, e := t.SpanStart(), t.SpanEnd()
+	if s.IsZero() || e.IsZero() || d.IsZero() {
+		return false
+	}
+	if e.Before(s) {
+		e = s
+	}
+	return !d.Before(s) && !d.After(e)
+}
+
+// SpanOverlaps reports whether the working period intersects [start, end].
+// A week view asks this: a task that started before the week and ends after it
+// is still this week's work even though neither of its dates falls inside.
+func (t *Task) SpanOverlaps(start, end Date) bool {
+	s, e := t.SpanStart(), t.SpanEnd()
+	if s.IsZero() || e.IsZero() {
+		return false
+	}
+	if e.Before(s) {
+		e = s
+	}
+	return !s.After(end) && !e.Before(start)
+}
+
 // HasTag is case-insensitive; tags are typed by hand.
 func (t *Task) HasTag(tag string) bool {
 	for _, x := range t.Tags {

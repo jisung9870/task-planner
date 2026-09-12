@@ -97,3 +97,44 @@ func TestRolloverIfEnabledRespectsConfig(t *testing.T) {
 		t.Fatal("auto_rollover=false 인데 이월됨")
 	}
 }
+
+// A multi-day task is not late just because it started yesterday. Carrying it
+// would move its start and inflate the carry counter that flags real slippage.
+func TestRolloverSkipsTaskStillInsideItsSpan(t *testing.T) {
+	svc := newTestService(t)
+	task, _ := svc.Add(AddInput{Title: "리팩터링 스프린트"})
+	if _, err := svc.SetSpan(task.ID, mustSpan(t, svc, "09-09~09-20")); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := svc.Rollover()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rep.Empty() {
+		t.Fatalf("기간 중인 태스크가 이월됨: %d건", len(rep.Rolled))
+	}
+	after, _ := svc.Load(task.ID)
+	if after.Scheduled.String() != "2026-09-09" || after.RolloverCount != 0 {
+		t.Fatalf("scheduled=%s count=%d", after.Scheduled, after.RolloverCount)
+	}
+}
+
+// A period that already ended still carries: that is exactly a missed plan.
+func TestRolloverCarriesTaskWhoseSpanEnded(t *testing.T) {
+	svc := newTestService(t)
+	task, _ := svc.Add(AddInput{Title: "지난 주 작업"})
+	if _, err := svc.SetSpan(task.ID, mustSpan(t, svc, "09-07~09-09")); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := svc.Rollover()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Rolled) != 1 {
+		t.Fatalf("이월 %d건", len(rep.Rolled))
+	}
+	after, _ := svc.Load(task.ID)
+	if !after.Scheduled.Equal(svc.Today()) {
+		t.Fatalf("scheduled=%s", after.Scheduled)
+	}
+}

@@ -2,6 +2,7 @@ package domain
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -121,4 +122,88 @@ func (d *Date) UnmarshalJSON(b []byte) error {
 	}
 	*d = parsed
 	return nil
+}
+
+// ParseDateRef reads the shorthands worth typing at a prompt on top of the
+// canonical YYYY-MM-DD: MM-DD (올해), today/tomorrow, +Nd/+Nw/+Nm, and weekday
+// names ("the next such day", today included). ref is the date relative forms
+// count from - normally today, but a span's end counts from its start.
+//
+// It lives in domain rather than in the CLI because the TUI prompts accept the
+// same forms, and an adapter may not import another adapter.
+func ParseDateRef(s string, ref Date) (Date, error) {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if s == "" {
+		return Date{}, nil
+	}
+	switch s {
+	case "today", "오늘", "t":
+		return ref, nil
+	case "tomorrow", "내일", "tm":
+		return ref.AddDays(1), nil
+	case "yesterday", "어제":
+		return ref.AddDays(-1), nil
+	case "none", "clear", "해제", "-":
+		return Date{}, nil
+	}
+	if s[0] == '+' || s[0] == '-' {
+		return parseRelative(s, ref)
+	}
+	if wd, ok := weekdayOf(s); ok {
+		d := ref
+		for i := 0; i < 7; i++ {
+			if d.Weekday() == wd {
+				return d, nil
+			}
+			d = d.AddDays(1)
+		}
+	}
+	// MM-DD is the common case at a prompt: the year is almost always the
+	// current one, and being explicit beats guessing a rollover the user did
+	// not ask for.
+	if len(s) == 5 && s[2] == '-' {
+		return ParseDate(fmt.Sprintf("%04d-%s", ref.t.Year(), s))
+	}
+	return ParseDate(s)
+}
+
+func parseRelative(s string, ref Date) (Date, error) {
+	sign := 1
+	if s[0] == '-' {
+		sign = -1
+	}
+	body := s[1:]
+	unit := byte('d')
+	if len(body) > 0 {
+		if last := body[len(body)-1]; last == 'd' || last == 'w' || last == 'm' {
+			unit, body = last, body[:len(body)-1]
+		}
+	}
+	n, err := strconv.Atoi(body)
+	if err != nil {
+		return Date{}, fmt.Errorf("상대 날짜 형식 오류: %q (예: +3d, +2w)", s)
+	}
+	switch unit {
+	case 'w':
+		return ref.AddDays(sign * n * 7), nil
+	case 'm':
+		return ref.AddMonths(sign * n), nil
+	default:
+		return ref.AddDays(sign * n), nil
+	}
+}
+
+var weekdayNames = map[string]time.Weekday{
+	"mon": time.Monday, "monday": time.Monday, "월": time.Monday,
+	"tue": time.Tuesday, "tuesday": time.Tuesday, "화": time.Tuesday,
+	"wed": time.Wednesday, "wednesday": time.Wednesday, "수": time.Wednesday,
+	"thu": time.Thursday, "thursday": time.Thursday, "목": time.Thursday,
+	"fri": time.Friday, "friday": time.Friday, "금": time.Friday,
+	"sat": time.Saturday, "saturday": time.Saturday, "토": time.Saturday,
+	"sun": time.Sunday, "sunday": time.Sunday, "일": time.Sunday,
+}
+
+func weekdayOf(s string) (time.Weekday, bool) {
+	wd, ok := weekdayNames[s]
+	return wd, ok
 }

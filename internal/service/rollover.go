@@ -40,6 +40,13 @@ func (s *Service) Rollover() (RolloverReport, error) {
 		if sum.Scheduled.IsZero() || !sum.Scheduled.Before(today) {
 			continue
 		}
+		// A task whose 진행 기간 still covers today has not slipped, it is
+		// mid-period. Carrying it would move its start date and bump the carry
+		// counter every morning, destroying the one signal that says "이건
+		// 쪼개거나 버릴 때다".
+		if sum.InSpan(today) {
+			continue
+		}
 		t, err := s.Load(sum.ID)
 		if err != nil {
 			return rep, err
