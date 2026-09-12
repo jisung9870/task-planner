@@ -211,6 +211,14 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, textinput.Blink
 		}
 	case "D":
+		if p := m.currentProj(); p != nil {
+			if p.Slug == "" {
+				m.setErr(errNotAProject)
+				break
+			}
+			m.startPrompt(modeProjectDue, "프로젝트 마감일: ", p.Due.String())
+			return m, textinput.Blink
+		}
 		if t := m.current(); t != nil {
 			m.startPrompt(modeSpan, "기간: ", t.Span().String())
 			return m, textinput.Blink
@@ -363,6 +371,8 @@ func (m *Model) updatePrompt(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.setProject(value)
 		case modeNewProject:
 			m.newProject(value)
+		case modeProjectDue:
+			m.setProjectDue(value)
 		case modeNote:
 			m.addNote(value)
 		case modeBlock:
@@ -641,6 +651,35 @@ func (m *Model) hasTask(id string) bool {
 		}
 	}
 	return false
+}
+
+// setProjectDue writes the project milestone that the Projects tab counts down.
+func (m *Model) setProjectDue(value string) {
+	r := m.currentProj()
+	if r == nil {
+		return
+	}
+	d, err := m.svc.ParseDate(value)
+	if err != nil {
+		m.setErr(err)
+		return
+	}
+	if _, err := m.svc.EnsureProject(r.Slug); err != nil {
+		m.setErr(err)
+		return
+	}
+	p, err := m.svc.EditProject(r.Slug, service.ProjectEditInput{Due: &d})
+	if err != nil {
+		m.setErr(err)
+		return
+	}
+	m.reload()
+	m.selectProject(p.Slug)
+	if d.IsZero() {
+		m.setStatus("프로젝트 %s 마감 해제", p.Slug)
+		return
+	}
+	m.setStatus("프로젝트 %s 마감 → %s", p.Slug, d)
 }
 
 // cycleProject advances the project status (active → paused → done).

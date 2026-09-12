@@ -117,12 +117,30 @@ func ByProject(all []*domain.Task, slug string, today domain.Date, includeDone b
 // ProjectCount is a per-project rollup for the project list view. An empty
 // Slug means "프로젝트 미지정".
 type ProjectCount struct {
-	Slug    string
-	Open    int
-	Doing   int
-	Blocked int
-	Done    int
-	Overdue int
+	Slug      string
+	Open      int
+	Doing     int
+	Blocked   int
+	Done      int
+	Cancelled int
+	Overdue   int
+	// Remain sums the estimates of work still open - the burndown number. It
+	// only counts tasks that carry an estimate, so it is a floor, not a total.
+	Remain domain.Duration
+	// Estimated is how many open tasks actually have an estimate, which is what
+	// makes Remain readable ("3/7 항목만 추정됨").
+	Estimated int
+}
+
+// Progress is the share of decided work that is done. Cancelled work is
+// excluded from both sides: dropping a task is not progress, and counting it
+// as such would let a project hit 100% by abandonment.
+func (c ProjectCount) Progress() float64 {
+	total := c.Open + c.Done
+	if total == 0 {
+		return 0
+	}
+	return float64(c.Done) / float64(total)
 }
 
 // ProjectCounts aggregates tasks per project slug, sorted by open work first.
@@ -148,6 +166,12 @@ func ProjectCounts(all []*domain.Task, today domain.Date) []ProjectCount {
 			c.Open++
 		case t.Status == domain.StatusDone:
 			c.Done++
+		case t.Status == domain.StatusCancelled:
+			c.Cancelled++
+		}
+		if t.IsOpen() && !t.Estimate.IsZero() {
+			c.Remain += t.Estimate
+			c.Estimated++
 		}
 		if t.Overdue(today) {
 			c.Overdue++

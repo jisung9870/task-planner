@@ -35,6 +35,7 @@ const helpFull = `키
   프로젝트    p  선택한 태스크의 프로젝트 지정 ( - 입력 시 해제)
   Projects    n  새 프로젝트 (slug [이름])
               s  상태 순환 active → paused → done
+              D  프로젝트 마감일 (진행률 옆에 D-n 으로 표시)
               e  project.md 편집 (없으면 만들고 엽니다)
               enter 드릴인 — 그 안에서 a 로 추가하면 그 프로젝트로 들어갑니다
   상세        넓은 화면: 우측 고정 패널 (enter 로 접기/펼치기)

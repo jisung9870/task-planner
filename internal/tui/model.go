@@ -44,6 +44,7 @@ const (
 	modeProject
 	modeNewProject
 	modeNote
+	modeProjectDue
 	modeHelp
 )
 
@@ -51,7 +52,7 @@ const (
 func (md mode) prompting() bool {
 	switch md {
 	case modeCapture, modeBlock, modeSearch, modeSpan, modeProject, modeNewProject,
-		modeNote:
+		modeNote, modeProjectDue:
 		return true
 	}
 	return false

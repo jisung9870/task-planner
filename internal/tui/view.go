@@ -803,19 +803,54 @@ func (m *Model) renderProjRow(i int, r row) string {
 		cursor = stySelected.Render("▸ ")
 	}
 	c := r.proj
-	line := fmt.Sprintf("%s %s 열림 %-3d 진행 %-3d 보류 %-3d 완료 %-3d",
-		pad(query.ProjectLabel(c.Slug), 18), pad(projStatusMark(c), 6),
-		c.Open, c.Doing, c.Blocked, c.Done)
-	if c.Name != "" && c.Name != c.Slug {
-		line += "  " + styMuted.Render(truncate(c.Name, 24))
+	line := fmt.Sprintf("%s %s %s 열림 %-3d 진행 %-3d 완료 %-3d",
+		pad(query.ProjectLabel(c.Slug), 16), pad(projStatusMark(c), 6),
+		progressBar(c.Progress(), 5), c.Open, c.Doing, c.Done)
+	if !c.Remain.IsZero() {
+		line += "  " + styMuted.Render("남은 ~"+c.Remain.String())
+	}
+	if note := m.projDueNote(c); note != "" {
+		line += "  " + note
 	}
 	if c.Overdue > 0 {
 		line += "  " + styDanger.Render(fmt.Sprintf("마감초과 %d", c.Overdue))
+	}
+	if c.Name != "" && c.Name != c.Slug {
+		line += "  " + styMuted.Render(truncate(c.Name, 20))
 	}
 	if !c.Active() {
 		line = styDoneRow.Render(stripStyles(line))
 	}
 	return "  " + cursor + line
+}
+
+// progressBar renders done-vs-open. The percentage alone gets skimmed past; a
+// bar is what makes a project that has not moved visible in a list.
+func progressBar(ratio float64, width int) string {
+	filled := int(ratio*float64(width) + 0.5)
+	if filled > width {
+		filled = width
+	}
+	bar := styDoing.Render(strings.Repeat("▰", filled)) + styMuted.Render(strings.Repeat("▱", width-filled))
+	return fmt.Sprintf("%s %3.0f%%", bar, ratio*100)
+}
+
+// projDueNote counts down to the project milestone, which is the form the
+// answer is wanted in ("2주 남았다") rather than a bare date.
+func (m *Model) projDueNote(c *service.ProjectRow) string {
+	if c.Due.IsZero() {
+		return ""
+	}
+	d := c.Due.DaysUntil(m.svc.Today())
+	switch {
+	case d < 0:
+		return styDanger.Render(fmt.Sprintf("마감 %d일 초과", -d))
+	case d == 0:
+		return styDanger.Render("오늘 마감")
+	case d <= 14:
+		return styBlocked.Render(fmt.Sprintf("D-%d", d))
+	}
+	return styMuted.Render("~" + c.Due.String())
 }
 
 // projStatusMark shows where a project stands. A slug that exists only on
@@ -958,6 +993,8 @@ func (m *Model) promptHint() string {
 		return hint
 	case modeNewProject:
 		return "enter 확인  esc 취소   첫 낱말이 slug, 나머지가 이름 (예: infra-2026 인프라 개편)"
+	case modeProjectDue:
+		return "enter 확인  esc 취소   예: 2026-10-31 · +2w · none(해제)"
 	case modeNote:
 		return "enter 확인  esc 취소   본문 ## Note 에 시각과 함께 한 줄 추가됩니다"
 	case modeBlock:

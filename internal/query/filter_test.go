@@ -188,3 +188,24 @@ func TestFilterWithoutBodyTermDoesNotNeedBody(t *testing.T) {
 		t.Fatal("본문을 안 읽는 질의가 NeedsBody 로 표시됨")
 	}
 }
+
+func TestProjectCountsProgressExcludesCancelled(t *testing.T) {
+	est, _ := domain.ParseDuration("2h")
+	ts := []*domain.Task{
+		{ID: "T-1", Project: "infra", Status: domain.StatusDone},
+		{ID: "T-2", Project: "infra", Status: domain.StatusTodo, Estimate: est},
+		{ID: "T-3", Project: "infra", Status: domain.StatusCancelled},
+	}
+	counts := ProjectCounts(ts, today)
+	if len(counts) != 1 {
+		t.Fatalf("counts = %+v", counts)
+	}
+	c := counts[0]
+	// 취소는 양쪽에서 빠지므로 1/2 = 50%.
+	if got := c.Progress(); got < 0.49 || got > 0.51 {
+		t.Fatalf("progress = %v (%+v)", got, c)
+	}
+	if c.Cancelled != 1 || c.Remain != est || c.Estimated != 1 {
+		t.Fatalf("%+v", c)
+	}
+}

@@ -326,20 +326,54 @@ func newProjectsCmd() *cobra.Command {
 					return nil
 				}
 				out := cmd.OutOrStdout()
-				fmt.Fprintf(out, "%s %s %s %s %s %s %s\n",
-					pad("프로젝트", 20), pad("상태", 10), padLeft("열림", 6),
-					padLeft("진행중", 6), padLeft("보류", 5), padLeft("완료", 5), padLeft("마감초과", 8))
+				today := svc.Today()
+				fmt.Fprintf(out, "%s %s %s %s %s %s %s %s\n",
+					pad("프로젝트", 18), pad("상태", 8), pad("진행률", 14),
+					padLeft("열림", 5), padLeft("진행중", 6), padLeft("완료", 5),
+					padLeft("남은예상", 9), "마감")
 				for _, r := range rows {
-					fmt.Fprintf(out, "%s %s %6d %6d %5d %5d %8d\n",
-						pad(query.ProjectLabel(r.Slug), 20), pad(projectStatusLabel(r), 10),
-						r.Open, r.Doing, r.Blocked, r.Done, r.Overdue)
+					fmt.Fprintf(out, "%s %s %s %s %s %s %s %s\n",
+						pad(query.ProjectLabel(r.Slug), 18), pad(projectStatusLabel(r), 8),
+						pad(progressBar(r.Progress(), 5), 14),
+						padLeft(fmt.Sprint(r.Open), 5), padLeft(fmt.Sprint(r.Doing), 6),
+						padLeft(fmt.Sprint(r.Done), 5), padLeft(r.Remain.String(), 9),
+						projectDueLabel(r, today))
 				}
 				return nil
 			})
 		},
 	}
-	cmd.AddCommand(newProjectNewCmd())
+	cmd.AddCommand(newProjectNewCmd(), newProjectSetCmd())
 	return cmd
+}
+
+// progressBar renders done-vs-open as a fixed-width bar. The number alone gets
+// skimmed past; the bar is what makes a stalled project visible in a list.
+func progressBar(ratio float64, width int) string {
+	filled := int(ratio*float64(width) + 0.5)
+	if filled > width {
+		filled = width
+	}
+	return strings.Repeat("▰", filled) + strings.Repeat("▱", width-filled) +
+		fmt.Sprintf(" %3.0f%%", ratio*100)
+}
+
+// projectDueLabel shows the milestone as remaining days, which is the form the
+// answer is needed in ("2주 남았다"), with the date for anything further out.
+func projectDueLabel(r service.ProjectRow, today domain.Date) string {
+	if r.Due.IsZero() {
+		return ""
+	}
+	d := r.Due.DaysUntil(today)
+	switch {
+	case d < 0:
+		return fmt.Sprintf("%s (%d일 초과)", r.Due, -d)
+	case d == 0:
+		return fmt.Sprintf("%s (오늘)", r.Due)
+	case d <= 30:
+		return fmt.Sprintf("%s (D-%d)", r.Due, d)
+	}
+	return r.Due.String()
 }
 
 // projectStatusLabel distinguishes a project with a file from a slug that only
@@ -371,6 +405,56 @@ func newProjectNewCmd() *cobra.Command {
 			})
 		},
 	}
+}
+
+func newProjectSetCmd() *cobra.Command {
+	var name, status, owner, due string
+	cmd := &cobra.Command{
+		Use:   "set <slug> [플래그]",
+		Short: "프로젝트 메타 수정 (상태·마감·담당)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return withService(func(svc *service.Service) error {
+				f := cmd.Flags()
+				in := service.ProjectEditInput{}
+				if f.Changed("name") {
+					v := strings.TrimSpace(name)
+					in.Name = &v
+				}
+				if f.Changed("status") {
+					v := strings.ToLower(strings.TrimSpace(status))
+					in.Status = &v
+				}
+				if f.Changed("owner") {
+					v := clearValue(owner)
+					in.Owner = &v
+				}
+				if f.Changed("due") {
+					d, err := parseDateFlag(svc, due)
+					if err != nil {
+						return err
+					}
+					in.Due = &d
+				}
+				p, err := svc.EditProject(args[0], in)
+				if err != nil {
+					return err
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "%s  %s  상태 %s", p.Slug, p.Display(), p.Status)
+				if !p.Due.IsZero() {
+					fmt.Fprintf(cmd.OutOrStdout(), "  마감 %s", p.Due)
+				}
+				fmt.Fprintln(cmd.OutOrStdout())
+				return nil
+			})
+		},
+	}
+	f := cmd.Flags()
+	f.StringVar(&name, "name", "", "표시 이름")
+	f.StringVar(&status, "status", "", "active | paused | done")
+	f.StringVar(&owner, "owner", "", "담당 (none 이면 해제)")
+	f.StringVar(&due, "due", "", "프로젝트 마감일 (YYYY-MM-DD | +2w | none)")
+	return cmd
 }
 
 func newIndexCmd() *cobra.Command {
