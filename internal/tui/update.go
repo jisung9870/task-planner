@@ -180,6 +180,12 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else {
 			m.moveCursor(1)
 		}
+	case "J":
+		m.detailOffset++
+	case "K":
+		if m.detailOffset > 0 {
+			m.detailOffset--
+		}
 	case "left", "h":
 		if m.gridTab() {
 			m.moveColumn(-1)
@@ -432,7 +438,7 @@ func (m *Model) switchTab(t tab) {
 	m.tab = t
 	m.cursor, m.colCursor, m.rowCursor = 0, 0, 0
 	m.listOffset = 0
-	m.detail = false
+	m.detail, m.detailOffset = false, 0
 	m.projDrill, m.projSlug = false, ""
 	m.reload()
 }

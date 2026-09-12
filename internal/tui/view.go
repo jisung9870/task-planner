@@ -66,7 +66,7 @@ func (m *Model) View() string {
 		}
 		body = fitHeight(m.list(listH), listH) + "\n" +
 			styRule.Render(strings.Repeat("─", m.innerWidth())) + "\n" +
-			clipLines(m.detailPane(), detailH)
+			m.detailBlock(detailH)
 	default:
 		body = m.list(avail)
 	}
@@ -157,7 +157,7 @@ func (m *Model) splitBody(avail int) string {
 	// lipgloss Width() word-wraps long lines; a list row must truncate instead,
 	// so fit each line by hand with the ANSI-aware truncator.
 	left := fitBlock(m.list(avail), listW)
-	right := fitBlock(clipLines(m.detailPane(), avail), detailW)
+	right := fitBlock(m.detailBlock(avail), detailW)
 
 	divider := strings.TrimRight(strings.Repeat(styRule.Render("│")+"\n", avail), "\n")
 	return lipgloss.JoinHorizontal(lipgloss.Top, left, " ", divider, " ", right)
@@ -213,16 +213,6 @@ func fitHeight(s string, n int) string {
 		lines = append(lines, "")
 	}
 	return strings.Join(lines, "\n")
-}
-
-// clipLines truncates a multi-line block to max lines, marking the cut.
-func clipLines(s string, max int) string {
-	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
-	if len(lines) <= max {
-		return strings.Join(lines, "\n")
-	}
-	out := lines[:max-1]
-	return strings.Join(out, "\n") + "\n" + styMuted.Render(fmt.Sprintf("  … %d줄 더 (e 편집기로 열람)", len(lines)-max+1))
 }
 
 // innerWidth is the full terminal width - the TUI owns the whole screen, like
@@ -943,16 +933,48 @@ func (m *Model) detailPane() string {
 	}
 	if logs := full.LogLines(); len(logs) > 0 {
 		b.WriteString("\n  " + styGroup.Render("Log") + "\n")
-		start := 0
-		if len(logs) > 5 {
-			start = len(logs) - 5
-		}
-		for _, l := range logs[start:] {
+		for _, l := range logs {
 			b.WriteString("  " + styMuted.Render("· "+l) + "\n")
 		}
 	}
 	b.WriteString("\n  " + styMuted.Render(full.Path) + "\n")
 	return b.String()
+}
+
+// detailBlock windows the pane to the height available, scrolled by J/K.
+//
+// The pane used to print the last five log lines and cut the rest with "e 로
+// 열람". Notes accumulate now, so the answer to a long body is scrolling, not
+// a trip to the editor.
+func (m *Model) detailBlock(avail int) string {
+	lines := strings.Split(strings.TrimRight(m.detailPane(), "\n"), "\n")
+	if avail < 1 {
+		avail = 1
+	}
+	if len(lines) <= avail {
+		m.detailOffset = 0
+		return strings.Join(lines, "\n")
+	}
+	// One line of the budget goes to whichever indicator is showing.
+	body := avail - 1
+	if max := len(lines) - body; m.detailOffset > max {
+		m.detailOffset = max
+	}
+	if m.detailOffset < 0 {
+		m.detailOffset = 0
+	}
+	end := m.detailOffset + body
+	if end > len(lines) {
+		end = len(lines)
+	}
+	out := strings.Join(lines[m.detailOffset:end], "\n")
+	hint := fmt.Sprintf("  … %d줄 더 (J/K 스크롤)", len(lines)-end)
+	if m.detailOffset > 0 && end >= len(lines) {
+		hint = fmt.Sprintf("  ↑ %d줄 (J/K 스크롤)", m.detailOffset)
+	} else if m.detailOffset > 0 {
+		hint = fmt.Sprintf("  ↑%d ↓%d (J/K 스크롤)", m.detailOffset, len(lines)-end)
+	}
+	return out + "\n" + styMuted.Render(hint)
 }
 
 func detailMeta(t *domain.Task) string {

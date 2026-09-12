@@ -91,6 +91,9 @@ type Model struct {
 	// listOffset is the first visible row of the list viewport. The list used
 	// to render every row, which scrolled the header off screen past ~15 tasks.
 	listOffset int
+	// detailOffset scrolls the detail pane (J/K), which grows unbounded once
+	// notes start accumulating.
+	detailOffset int
 
 	// marked holds the ids selected for a bulk action, keyed by id so the
 	// selection survives a reload that reorders or re-buckets rows.
@@ -174,6 +177,7 @@ func (m *Model) SetWatcher(w *watch.Watcher) { m.watcher = w }
 // reload re-runs the current view's query. Cheap: it reads the in-memory index.
 func (m *Model) reload() {
 	today := m.svc.Today()
+	m.detailOffset = 0
 	var ts []*domain.Task
 	switch m.tab {
 	case tabToday:
