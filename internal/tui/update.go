@@ -160,8 +160,19 @@ func (m *Model) updateHelp(msg tea.KeyMsg) {
 }
 
 func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.String() != "q" {
+		m.quitArmed = false
+	}
 	switch msg.String() {
 	case "q", "ctrl+c":
+		if msg.String() == "q" && !m.quitArmed {
+			if t := m.runningTask(); t != nil {
+				m.quitArmed = true
+				m.setStatus("%s 진행중 (%s) — q 를 한 번 더 누르면 타이머를 켠 채 종료, d/u 로 멈춤",
+					t.ShortID(), t.ElapsedActual(m.svc.Now()))
+				return m, nil
+			}
+		}
 		m.saveUIState()
 		m.quit = true
 		return m, tea.Quit
@@ -841,6 +852,16 @@ func (m *Model) undo() {
 	m.reload()
 	m.selectID(id)
 	m.setStatus("되돌림: %s", label)
+}
+
+// runningTask is the task whose timer is going, if any.
+func (m *Model) runningTask() *domain.Task {
+	for _, t := range m.svc.All() {
+		if t.Status == domain.StatusDoing && t.StartedAt != nil {
+			return t
+		}
+	}
+	return nil
 }
 
 // saveUIState persists the layout choices worth restoring next launch.

@@ -266,6 +266,10 @@ func (m *Model) tabs() string {
 func (m *Model) statsLine() string {
 	sum := m.summary
 	var parts []string
+	if t := m.runningTask(); t != nil {
+		parts = append(parts, styDoing.Render(fmt.Sprintf("▶ %s %s %s",
+			t.ShortID(), truncate(t.Title, 20), t.ElapsedActual(m.svc.Now()))))
+	}
 	if sum.DueToday > 0 {
 		parts = append(parts, styBlocked.Render(fmt.Sprintf("오늘마감 %d", sum.DueToday)))
 	}

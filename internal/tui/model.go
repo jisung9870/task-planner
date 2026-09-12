@@ -158,6 +158,10 @@ type Model struct {
 	confirm       func()
 	confirmPrompt string
 
+	// quitArmed is set by the first q while a timer runs, so the second one
+	// means "yes, leave it running".
+	quitArmed bool
+
 	// Per-reload aggregates. Every one of these used to be recomputed inside
 	// View(), i.e. on every keystroke and every tick.
 	summary       service.Summary
