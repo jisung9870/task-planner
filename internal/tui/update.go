@@ -198,6 +198,11 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.startPrompt(modeProject, "프로젝트: ", t.Project)
 			return m, textinput.Blink
 		}
+	case "N":
+		if t := m.current(); t != nil {
+			m.startPrompt(modeNote, "메모: ", "")
+			return m, textinput.Blink
+		}
 	case "n":
 		if m.tab == tabProjects && !m.projDrill {
 			m.startPrompt(modeNewProject, "새 프로젝트 (slug [이름]): ", "")
@@ -356,6 +361,8 @@ func (m *Model) updatePrompt(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.setProject(value)
 		case modeNewProject:
 			m.newProject(value)
+		case modeNote:
+			m.addNote(value)
 		case modeBlock:
 			if t := m.current(); t != nil {
 				if value == "" {
@@ -576,6 +583,23 @@ func (m *Model) newProject(value string) {
 	m.reload()
 	m.selectProject(p.Slug)
 	m.setStatus("프로젝트 추가됨 %s  %s", p.Slug, p.Display())
+}
+
+// addNote appends a timestamped line to the selected task's note section -
+// the thing you want to write down at the moment you hear it.
+func (m *Model) addNote(text string) {
+	t := m.current()
+	if t == nil || text == "" {
+		return
+	}
+	res, err := m.svc.AddNote(t.ID, text)
+	if err != nil {
+		m.setErr(err)
+		return
+	}
+	m.reload()
+	m.selectID(res.Task.ID)
+	m.setStatus("%s 메모 추가", res.Task.ShortID())
 }
 
 // cycleProject advances the project status (active → paused → done).

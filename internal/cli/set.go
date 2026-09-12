@@ -175,3 +175,21 @@ func setSummary(t *domain.Task) []string {
 	}
 	return parts
 }
+
+func newNoteCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "note <태스크> <내용...>",
+		Short: "태스크에 한 줄 메모 추가 (타임스탬프 포함)",
+		Args:  cobra.MinimumNArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return withService(func(svc *service.Service) error {
+				res, err := svc.AddNote(args[0], strings.Join(args[1:], " "))
+				if err != nil {
+					return err
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "메모 추가 %s  %s\n", res.Task.ShortID(), res.Task.Title)
+				return nil
+			})
+		},
+	}
+}

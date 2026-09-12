@@ -958,6 +958,8 @@ func (m *Model) promptHint() string {
 		return hint
 	case modeNewProject:
 		return "enter 확인  esc 취소   첫 낱말이 slug, 나머지가 이름 (예: infra-2026 인프라 개편)"
+	case modeNote:
+		return "enter 확인  esc 취소   본문 ## Note 에 시각과 함께 한 줄 추가됩니다"
 	case modeBlock:
 		return "enter 확인  esc 취소   사유 없이는 보류되지 않습니다"
 	}

@@ -43,13 +43,15 @@ const (
 	modeSpan
 	modeProject
 	modeNewProject
+	modeNote
 	modeHelp
 )
 
 // prompting reports whether the mode is a one-line text prompt.
 func (md mode) prompting() bool {
 	switch md {
-	case modeCapture, modeBlock, modeSearch, modeSpan, modeProject, modeNewProject:
+	case modeCapture, modeBlock, modeSearch, modeSpan, modeProject, modeNewProject,
+		modeNote:
 		return true
 	}
 	return false

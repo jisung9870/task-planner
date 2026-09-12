@@ -277,6 +277,28 @@ func (s *Service) Edit(ref string, in EditInput) (*Result, error) {
 	return &Result{Task: t}, nil
 }
 
+// AddNote appends a timestamped line to the task's note section.
+//
+// It is separate from Edit because a note is not a field: it accumulates, and
+// an Edit-shaped API would invite replacing the note instead of adding to it.
+func (s *Service) AddNote(ref, text string) (*Result, error) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil, fmt.Errorf("메모 내용이 비어 있음")
+	}
+	t, err := s.Load(ref)
+	if err != nil {
+		return nil, err
+	}
+	t.AppendNote(s.now(), text)
+	t.Updated = s.Today()
+	if err := s.save(t); err != nil {
+		return nil, err
+	}
+	s.recordChange(t.ShortID()+" 메모", fmt.Sprintf("%s %s: 메모 추가", t.ID, t.Title))
+	return &Result{Task: t}, nil
+}
+
 // Delete removes a task file outright. Cancelling is almost always the better
 // move; this exists for captures made by mistake.
 func (s *Service) Delete(ref string) error {

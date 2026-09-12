@@ -220,3 +220,48 @@ func TestTimerIgnoresRedundantDoingTransition(t *testing.T) {
 		t.Fatalf("타이머가 재설정됨: %v != %v", task.StartedAt, first)
 	}
 }
+
+func TestAppendNoteCreatesSectionAboveLog(t *testing.T) {
+	at := time.Date(2026, 9, 12, 16, 30, 0, 0, time.UTC)
+	task := &Task{ID: "T-1", Title: "작업", Status: StatusTodo}
+	task.AppendLog(at, "created")
+	task.AppendNote(at, "보안팀 회신 대기")
+
+	note, log := task.Note(), task.LogLines()
+	if !strings.Contains(note, "보안팀 회신 대기") {
+		t.Fatalf("note = %q", note)
+	}
+	if len(log) != 1 || !strings.Contains(log[0], "created") {
+		t.Fatalf("log = %v", log)
+	}
+	// The note section has to sit above the log, or the file stops reading
+	// top-down as history accumulates.
+	if strings.Index(task.Body, "## Note") > strings.Index(task.Body, "## Log") {
+		t.Fatalf("Note 가 Log 아래에 있음:\n%s", task.Body)
+	}
+}
+
+func TestAppendNoteAccumulates(t *testing.T) {
+	at := time.Date(2026, 9, 12, 16, 30, 0, 0, time.UTC)
+	task := &Task{ID: "T-1", Title: "작업", Status: StatusTodo}
+	task.AppendNote(at, "첫 줄")
+	task.AppendNote(at.Add(time.Hour), "둘째 줄")
+	note := task.Note()
+	if !strings.Contains(note, "첫 줄") || !strings.Contains(note, "둘째 줄") {
+		t.Fatalf("메모가 덮어써짐: %q", note)
+	}
+	if strings.Count(task.Body, "## Note") != 1 {
+		t.Fatalf("Note 섹션이 중복됨:\n%s", task.Body)
+	}
+}
+
+// A quick capture's body is bare prose; a note must not orphan it.
+func TestAppendNoteKeepsExistingProse(t *testing.T) {
+	at := time.Date(2026, 9, 12, 16, 30, 0, 0, time.UTC)
+	task := &Task{ID: "T-1", Title: "작업", Status: StatusTodo, Body: "원래 적어둔 내용\n"}
+	task.AppendNote(at, "새 메모")
+	note := task.Note()
+	if !strings.Contains(note, "원래 적어둔 내용") || !strings.Contains(note, "새 메모") {
+		t.Fatalf("note = %q", note)
+	}
+}
