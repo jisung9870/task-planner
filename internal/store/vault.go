@@ -186,6 +186,30 @@ func (v *Vault) LoadProjects() ([]*domain.Project, error) {
 	return out, nil
 }
 
+// ArchiveTask moves a finished task out of tasks/ into archive/, returning its
+// new path. The file keeps its name and frontmatter: archiving is a move, not
+// a transformation, so `tp index --rebuild` on the archive would reproduce the
+// same tasks.
+func (v *Vault) ArchiveTask(t *domain.Task) (string, error) {
+	if t.Path == "" {
+		return "", fmt.Errorf("%s: 파일 경로를 알 수 없음", t.ID)
+	}
+	dst := v.ArchivePath(t)
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return "", err
+	}
+	if _, err := os.Stat(dst); err == nil {
+		return "", fmt.Errorf("%s: 아카이브에 같은 이름이 이미 있음", dst)
+	}
+	// tasks/ and archive/ are both inside the vault root, so a rename is a
+	// rename - no copy path to get wrong.
+	if err := os.Rename(t.Path, dst); err != nil {
+		return "", err
+	}
+	t.Path = dst
+	return dst, nil
+}
+
 // ProjectPath is where a project's metadata lives.
 func (v *Vault) ProjectPath(slug string) string {
 	return filepath.Join(v.ProjectsDir(), slug, "project.md")
