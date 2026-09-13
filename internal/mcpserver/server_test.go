@@ -400,3 +400,15 @@ func TestWriteToolsEchoThePreview(t *testing.T) {
 		t.Fatalf("전이 후 preview = %q", out["preview"])
 	}
 }
+
+func TestConventionsResourceIsReadable(t *testing.T) {
+	cs, _ := newTestSession(t)
+	res, err := cs.ReadResource(context.Background(),
+		&mcp.ReadResourceParams{URI: "tp://conventions"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Contents) != 1 || !strings.Contains(res.Contents[0].Text, "명사구") {
+		t.Fatalf("규약 문서가 비어 있음: %v", res.Contents)
+	}
+}

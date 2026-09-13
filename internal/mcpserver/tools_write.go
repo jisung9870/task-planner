@@ -12,7 +12,7 @@ import (
 )
 
 type addArgs struct {
-	Title     string   `json:"title" jsonschema:"태스크 제목 (필수). 40자 안쪽의 명사구 한 줄 — 문장·부연 설명을 넣지 말고 상세는 note 로"`
+	Title     string   `json:"title" jsonschema:"태스크 제목 (필수). 40자 안쪽 명사구 한 줄, 한 제목에 한 가지 일. 상세는 note 로 (규약: tp://conventions)"`
 	Project   string   `json:"project,omitempty" jsonschema:"프로젝트 slug"`
 	Priority  string   `json:"priority,omitempty" jsonschema:"우선순위 P0~P3"`
 	Scheduled string   `json:"scheduled,omitempty" jsonschema:"착수 예정일: YYYY-MM-DD | today | tomorrow"`
@@ -20,7 +20,7 @@ type addArgs struct {
 	Estimate  string   `json:"estimate,omitempty" jsonschema:"예상 소요 (30m, 2h, 1h30m)"`
 	Tags      []string `json:"tags,omitempty"`
 	Links     []string `json:"links,omitempty" jsonschema:"외부 링크 (jira:ABC-123 등)"`
-	Note      string   `json:"note,omitempty" jsonschema:"메모 본문 (markdown). 꼭 필요한 맥락만 2~4줄 — 배경 한 줄과 링크면 충분하고, 계획서·체크리스트·수용 기준을 태스크에 쓰지 않는다"`
+	Note      string   `json:"note,omitempty" jsonschema:"메모 본문. 왜 이게 목록에 있는지 한 줄과 사실(날짜·수치·사람) 2~4줄. 헤딩·체크박스·단계 계획은 거부됨 (규약: tp://conventions)"`
 	Recur     string   `json:"recur,omitempty" jsonschema:"반복 규칙: daily|weekly|monthly|weekdays|every N days|every monday|monthly on 15"`
 	Start     bool     `json:"start,omitempty" jsonschema:"true 면 추가와 동시에 진행중으로 (타이머 시작)"`
 }
@@ -48,7 +48,7 @@ type mutateOut struct {
 type statusArgs struct {
 	Ref       string   `json:"ref" jsonschema:"태스크 지정: id, 짧은 번호, 제목 부분일치"`
 	Status    string   `json:"status" jsonschema:"todo|doing|blocked|done|cancelled. doing 은 타이머 시작, done 은 반복이면 다음 회차 생성과 후행 보류 해제"`
-	Reason    string   `json:"reason,omitempty" jsonschema:"보류(blocked) 사유. blocked 는 reason 또는 blocked_by 없이는 거부됨"`
+	Reason    string   `json:"reason,omitempty" jsonschema:"보류(blocked) 사유 — 누구를 언제까지 기다리는지 한 줄. blocked 는 reason 또는 blocked_by 없이는 거부됨"`
 	BlockedBy []string `json:"blocked_by,omitempty" jsonschema:"선행 태스크 참조 목록. 선행이 전부 끝나면 자동으로 대기중 복귀"`
 }
 
@@ -67,7 +67,7 @@ type editArgs struct {
 
 type noteArgs struct {
 	Ref  string `json:"ref" jsonschema:"태스크 지정"`
-	Text string `json:"text" jsonschema:"추가할 메모 한 줄. 본문 ## Note 에 시각과 함께 누적됨 (덮어쓰지 않음)"`
+	Text string `json:"text" jsonschema:"그때 안 사실 한 문장 (통화 내용·확인한 수치). 본문 ## Note 에 시각과 함께 누적됨 — 시각이 붙으므로 '오늘' 같은 말은 불필요"`
 }
 
 type projectCreateArgs struct {
@@ -112,7 +112,7 @@ type rolloverOut struct {
 func (s *Server) registerWriteTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "task_add",
-		Description: "태스크 추가. id 채번·생성 로그·WIP 경고가 자동 처리됨. 파일을 직접 만들지 말고 이 도구를 쓸 것. 심플하게 쓸 것: 제목은 40자 안쪽 명사구 한 줄, note 는 꼭 필요한 맥락 2~4줄 — 개인 도구의 태스크는 티켓이 아니라 할 일 한 줄이다.",
+		Description: "태스크 추가. id 채번·생성 로그·WIP 경고가 자동 처리됨. 파일을 직접 만들지 말고 이 도구를 쓸 것. 제목은 명사구 한 줄, note 는 사실 2~4줄 — 티켓이 아니라 할 일 한 줄이다. 작성 규약은 리소스 tp://conventions.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in addArgs) (*mcp.CallToolResult, mutateOut, error) {
 		defer s.begin()()
 		issues := append(style.CheckTitle(in.Title), style.CheckNote(in.Note)...)

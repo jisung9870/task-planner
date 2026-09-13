@@ -38,6 +38,7 @@ func New(svc *service.Service, version string) *Server {
 	}, nil)
 	s.registerReadTools()
 	s.registerWriteTools()
+	s.registerResources()
 	return s
 }
 
