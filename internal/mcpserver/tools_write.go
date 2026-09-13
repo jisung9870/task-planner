@@ -34,7 +34,12 @@ func withWarnings(out mutateOut, is []style.Issue) mutateOut {
 }
 
 type mutateOut struct {
-	Task      taskJSON   `json:"task"`
+	Task taskJSON `json:"task"`
+	// Preview is the row as a human will meet it in the TUI. It rides back on
+	// writes only: seeing the line it just wrote is what keeps the caller's
+	// next title from being a paragraph, and a list view repeating it for
+	// twenty rows would only cost tokens.
+	Preview   string     `json:"preview" jsonschema:"방금 쓴 태스크가 목록에서 보이는 한 줄"`
 	Warnings  []string   `json:"warnings,omitempty"`
 	Unblocked []taskJSON `json:"unblocked,omitempty" jsonschema:"이 변경으로 보류가 자동 해제된 태스크"`
 	Next      *taskJSON  `json:"next_occurrence,omitempty" jsonschema:"반복 태스크 완료로 생성된 다음 회차"`
@@ -375,7 +380,11 @@ func toProjectOut(p *domain.Project) projectOut {
 }
 
 func toMutateOut(res *service.Result, today domain.Date) mutateOut {
-	out := mutateOut{Task: toTaskJSON(res.Task, today), Warnings: res.Warnings}
+	out := mutateOut{
+		Task:     toTaskJSON(res.Task, today),
+		Preview:  res.Task.Preview(today),
+		Warnings: res.Warnings,
+	}
 	for _, u := range res.Unblocked {
 		out.Unblocked = append(out.Unblocked, toTaskJSON(u.Task, today))
 	}

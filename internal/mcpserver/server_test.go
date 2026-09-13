@@ -384,3 +384,19 @@ func TestStyleGateOnHoldReason(t *testing.T) {
 		t.Errorf("잘 쓴 사유에 경고: %v", w)
 	}
 }
+
+func TestWriteToolsEchoThePreview(t *testing.T) {
+	cs, _ := newTestSession(t)
+	out := call(t, cs, "task_add", map[string]any{
+		"title": "결제 콜백 중복 수신", "project": "billing", "priority": "P1",
+		"scheduled": "2026-09-15", "due": "2026-09-19",
+	})
+	want := "○ #1 결제 콜백 중복 수신  [billing · P1]  09-15~09-19 5일"
+	if out["preview"] != want {
+		t.Fatalf("preview = %q, want %q", out["preview"], want)
+	}
+	out = call(t, cs, "task_status", map[string]any{"ref": "#1", "status": "doing"})
+	if !strings.HasPrefix(out["preview"].(string), "● #1") {
+		t.Fatalf("전이 후 preview = %q", out["preview"])
+	}
+}
