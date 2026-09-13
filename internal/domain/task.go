@@ -322,3 +322,69 @@ func ShortRefs(ids []string) []string {
 	}
 	return out
 }
+
+// Preview renders the task the way a list row reads, without the column
+// padding a terminal needs. Write adapters echo it back so the caller - an
+// agent, usually - sees the sentence it just wrote in the shape a human will
+// meet it in. Reading your own line back is what stops the next one from
+// being a paragraph.
+func (t *Task) Preview(today Date) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s %s %s", t.Status.Glyph(), t.ShortID(), t.Title)
+
+	var meta []string
+	if t.Project != "" {
+		meta = append(meta, t.Project)
+	}
+	if t.Priority != "" {
+		meta = append(meta, string(t.Priority))
+	}
+	if !t.Estimate.IsZero() {
+		meta = append(meta, "~"+t.Estimate.String())
+	}
+	for _, tag := range t.Tags {
+		meta = append(meta, "#"+tag)
+	}
+	if len(meta) > 0 {
+		fmt.Fprintf(&b, "  [%s]", strings.Join(meta, " · "))
+	}
+	if when := t.previewWhen(today); when != "" {
+		b.WriteString("  " + when)
+	}
+	if t.RolloverCount > 0 && t.IsOpen() {
+		fmt.Fprintf(&b, "  ↻%d", t.RolloverCount)
+	}
+	if t.Status == StatusBlocked {
+		reason := t.BlockedReason
+		if reason == "" && len(t.BlockedBy) > 0 {
+			reason = "선행 " + strings.Join(ShortRefs(t.BlockedBy), ", ")
+		}
+		if d := t.BlockedDays(today); d > 0 {
+			reason = fmt.Sprintf("%s (%d일 경과)", reason, d)
+		}
+		b.WriteString("  ← " + reason)
+	}
+	return b.String()
+}
+
+// previewWhen picks the one date fact worth a row: a missed deadline first,
+// then the working period, then whichever single date exists.
+func (t *Task) previewWhen(today Date) string {
+	short := func(d Date) string { return d.Time().Format("01-02") }
+	if t.Overdue(today) {
+		return fmt.Sprintf("!! 마감 %d일 초과", -t.Due.DaysUntil(today))
+	}
+	if t.HasSpan() {
+		return t.SpanLabelShort()
+	}
+	if !t.Due.IsZero() {
+		if t.IsOpen() && t.Due.DaysUntil(today) == 0 {
+			return "! 오늘 마감"
+		}
+		return "~" + short(t.Due)
+	}
+	if !t.Scheduled.IsZero() {
+		return "착수 " + short(t.Scheduled)
+	}
+	return ""
+}

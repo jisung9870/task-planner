@@ -289,3 +289,35 @@ func TestTransitionRecordsCompletedForTerminalStates(t *testing.T) {
 		t.Fatalf("completed = %q", task.Completed)
 	}
 }
+
+func TestPreviewReadsLikeAListRow(t *testing.T) {
+	today := NewDate(2026, time.September, 12)
+	task := &Task{
+		ID: "T-20260912-0012", Title: "task_add 동시 호출 때 중복 생성", Status: StatusTodo,
+		Project: "task-planner", Priority: P1, Estimate: Duration(2 * time.Hour),
+		Scheduled: NewDate(2026, time.September, 15), Due: NewDate(2026, time.September, 19),
+	}
+	want := "○ #12 task_add 동시 호출 때 중복 생성  [task-planner · P1 · ~2h]  09-15~09-19 5일"
+	if got := task.Preview(today); got != want {
+		t.Fatalf("Preview =\n%q\nwant\n%q", got, want)
+	}
+
+	held := &Task{
+		ID: "T-20260912-0009", Title: "정산 배치 시각 조정", Status: StatusBlocked,
+		BlockedReason: "A팀 스펙 대기 — 18일까지", BlockedSince: NewDate(2026, time.September, 9),
+	}
+	if got := held.Preview(today); got != "⊘ #9 정산 배치 시각 조정  ← A팀 스펙 대기 — 18일까지 (3일 경과)" {
+		t.Fatalf("Preview = %q", got)
+	}
+
+	late := &Task{ID: "T-20260901-0003", Title: "청구서 확인", Status: StatusTodo,
+		Due: NewDate(2026, time.September, 10)}
+	if got := late.Preview(today); !strings.Contains(got, "!! 마감 2일 초과") {
+		t.Fatalf("Preview = %q", got)
+	}
+
+	bare := &Task{ID: "T-20260912-0001", Title: "주간보고", Status: StatusDoing}
+	if got := bare.Preview(today); got != "● #1 주간보고" {
+		t.Fatalf("Preview = %q", got)
+	}
+}
