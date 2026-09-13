@@ -3,12 +3,12 @@ package mcpserver
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"task-planner/internal/domain"
 	"task-planner/internal/service"
+	"task-planner/internal/style"
 )
 
 type addArgs struct {
@@ -25,26 +25,12 @@ type addArgs struct {
 	Start     bool     `json:"start,omitempty" jsonschema:"true 면 추가와 동시에 진행중으로 (타이머 시작)"`
 }
 
-// titleLimit is the hard cap on a title, in runes. The tool description asks
-// for 40; the cap only rejects what is clearly a paragraph in disguise. A
-// title is also the filename, and a filename-length essay helps no one.
-const titleLimit = 60
-
-// checkTitle rejects over-long titles with a fix, not just a refusal - the
-// calling model needs to know where the removed detail should go.
-func checkTitle(title string) error {
-	if n := len([]rune(strings.TrimSpace(title))); n > titleLimit {
-		return fmt.Errorf("제목이 너무 김 (%d자, 최대 %d자) — 40자 안쪽 명사구로 줄이고 상세는 note 로 옮길 것", n, titleLimit)
-	}
-	return nil
-}
-
-// noteAdvice warns (not rejects) when a note reads like a document.
-func noteAdvice(note string) string {
-	if len([]rune(note)) > 600 || strings.Count(note, "\n") > 8 {
-		return "note 가 깁니다 — 태스크 메모는 2~4줄이면 충분하고, 문서는 프로젝트나 저장소에 둡니다"
-	}
-	return ""
+// withWarnings attaches the style advice to a tool result. Warnings ride back
+// with the task itself rather than blocking it: the caller sees how the line it
+// just wrote falls short while the write still succeeds.
+func withWarnings(out mutateOut, is []style.Issue) mutateOut {
+	out.Warnings = append(out.Warnings, style.Warnings(is)...)
+	return out
 }
 
 type mutateOut struct {
@@ -124,7 +110,8 @@ func (s *Server) registerWriteTools() {
 		Description: "태스크 추가. id 채번·생성 로그·WIP 경고가 자동 처리됨. 파일을 직접 만들지 말고 이 도구를 쓸 것. 심플하게 쓸 것: 제목은 40자 안쪽 명사구 한 줄, note 는 꼭 필요한 맥락 2~4줄 — 개인 도구의 태스크는 티켓이 아니라 할 일 한 줄이다.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in addArgs) (*mcp.CallToolResult, mutateOut, error) {
 		defer s.begin()()
-		if err := checkTitle(in.Title); err != nil {
+		issues := append(style.CheckTitle(in.Title), style.CheckNote(in.Note)...)
+		if err := style.Err(issues); err != nil {
 			return nil, mutateOut{}, err
 		}
 		today := s.svc.Today()
@@ -155,11 +142,7 @@ func (s *Server) registerWriteTools() {
 		if err := s.finish(); err != nil {
 			return nil, mutateOut{}, err
 		}
-		out := toMutateOut(res, today)
-		if w := noteAdvice(in.Note); w != "" {
-			out.Warnings = append(out.Warnings, w)
-		}
-		return nil, out, nil
+		return nil, withWarnings(toMutateOut(res, today), issues), nil
 	})
 
 	mcp.AddTool(s.mcp, &mcp.Tool{
@@ -171,8 +154,13 @@ func (s *Server) registerWriteTools() {
 		if err != nil {
 			return nil, mutateOut{}, err
 		}
+		var issues []style.Issue
 		var res *service.Result
 		if st == domain.StatusBlocked {
+			issues = style.CheckReason(in.Reason)
+			if err := style.Err(issues); err != nil {
+				return nil, mutateOut{}, err
+			}
 			res, err = s.svc.Block(in.Ref, in.Reason, in.BlockedBy)
 		} else {
 			res, err = s.svc.SetStatus(in.Ref, st, nil)
@@ -183,7 +171,7 @@ func (s *Server) registerWriteTools() {
 		if err := s.finish(); err != nil {
 			return nil, mutateOut{}, err
 		}
-		return nil, toMutateOut(res, s.svc.Today()), nil
+		return nil, withWarnings(toMutateOut(res, s.svc.Today()), issues), nil
 	})
 
 	mcp.AddTool(s.mcp, &mcp.Tool{
@@ -206,8 +194,10 @@ func (s *Server) registerWriteTools() {
 		Description: "필드 수정 (부분 갱신 — 지정한 필드만 바뀜). 변경 내역이 태스크 로그에 남음. 진행 기간은 span 하나로 지정할 수 있음.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in editArgs) (*mcp.CallToolResult, mutateOut, error) {
 		defer s.begin()()
+		var issues []style.Issue
 		if in.Title != nil {
-			if err := checkTitle(*in.Title); err != nil {
+			issues = style.CheckTitle(*in.Title)
+			if err := style.Err(issues); err != nil {
 				return nil, mutateOut{}, err
 			}
 		}
@@ -256,7 +246,7 @@ func (s *Server) registerWriteTools() {
 			if err := s.finish(); err != nil {
 				return nil, mutateOut{}, err
 			}
-			return nil, toMutateOut(res, today), nil
+			return nil, withWarnings(toMutateOut(res, today), issues), nil
 		}
 		res, err := s.svc.Edit(in.Ref, ei)
 		if err != nil {
@@ -265,7 +255,7 @@ func (s *Server) registerWriteTools() {
 		if err := s.finish(); err != nil {
 			return nil, mutateOut{}, err
 		}
-		return nil, toMutateOut(res, today), nil
+		return nil, withWarnings(toMutateOut(res, today), issues), nil
 	})
 
 	mcp.AddTool(s.mcp, &mcp.Tool{
@@ -273,6 +263,10 @@ func (s *Server) registerWriteTools() {
 		Description: "태스크 본문에 시각이 붙은 메모 한 줄 추가. 기존 메모를 덮어쓰지 않고 쌓는다 — 통화 내용·확인한 수치처럼 나중에 근거가 될 것을 그때 적는 용도.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in noteArgs) (*mcp.CallToolResult, mutateOut, error) {
 		defer s.begin()()
+		issues := style.CheckNoteLine(in.Text)
+		if err := style.Err(issues); err != nil {
+			return nil, mutateOut{}, err
+		}
 		res, err := s.svc.AddNote(in.Ref, in.Text)
 		if err != nil {
 			return nil, mutateOut{}, err
@@ -280,7 +274,7 @@ func (s *Server) registerWriteTools() {
 		if err := s.finish(); err != nil {
 			return nil, mutateOut{}, err
 		}
-		return nil, toMutateOut(res, s.svc.Today()), nil
+		return nil, withWarnings(toMutateOut(res, s.svc.Today()), issues), nil
 	})
 
 	mcp.AddTool(s.mcp, &mcp.Tool{

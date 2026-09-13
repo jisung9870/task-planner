@@ -329,25 +329,58 @@ func TestArchiveDryRunReportsWithoutMoving(t *testing.T) {
 	}
 }
 
-func TestCheckTitleRejectsParagraphs(t *testing.T) {
-	if err := checkTitle("보안 감사 로그 정리"); err != nil {
-		t.Fatal(err)
+func TestStyleGateRejectsDocumentsAndAdvisesTone(t *testing.T) {
+	cs, _ := newTestSession(t)
+
+	// Structure is refused, and the refusal says where the material goes.
+	msg := callErr(t, cs, "task_add", map[string]any{
+		"title": "결제 콜백 중복 수신",
+		"note":  "## Context\n배경\n## Approach\n- [ ] 수정\n- [ ] 테스트",
+	})
+	if !strings.Contains(msg, "tp://conventions") {
+		t.Errorf("거부가 규약을 가리키지 않음: %s", msg)
 	}
-	long := strings.Repeat("가", titleLimit+1)
-	if err := checkTitle(long); err == nil {
-		t.Fatal("긴 제목이 통과함")
+	if msg = callErr(t, cs, "task_add", map[string]any{"title": strings.Repeat("가", 61)}); !strings.Contains(msg, "note") {
+		t.Errorf("긴 제목 거부에 고치는 방법이 없음: %s", msg)
 	}
-	// The error must say where the detail goes, not just "too long".
-	if err := checkTitle(long); !strings.Contains(err.Error(), "note") {
-		t.Fatalf("고치는 방법이 없음: %v", err)
+
+	// Tone is advice, not a wall: the task is created and the warning rides back.
+	out := call(t, cs, "task_add", map[string]any{
+		"title": "주간 보고서 작성 및 공유",
+		"note":  "확인 필요",
+	})
+	warns := out["warnings"].([]any)
+	if len(warns) < 2 {
+		t.Fatalf("경고가 모자람: %v", warns)
+	}
+	if out["task"].(map[string]any)["short_id"] != "#1" {
+		t.Fatalf("경고 때문에 생성이 막힘: %v", out)
+	}
+
+	// A line written the way the conventions ask draws nothing.
+	out = call(t, cs, "task_add", map[string]any{
+		"title": "task_add 동시 호출 때 중복 생성",
+		"note":  "9/12 Codex 세션에서 같은 태스크가 두 번 생겼다. 재현은 아직 한 번뿐.",
+	})
+	if w, ok := out["warnings"]; ok {
+		t.Errorf("잘 쓴 태스크에 경고: %v", w)
 	}
 }
 
-func TestNoteAdviceFlagsDocuments(t *testing.T) {
-	if w := noteAdvice("배경 한 줄. https://link"); w != "" {
-		t.Fatalf("짧은 메모에 경고: %s", w)
+func TestStyleGateOnHoldReason(t *testing.T) {
+	cs, _ := newTestSession(t)
+	call(t, cs, "task_add", map[string]any{"title": "정산 배치 시각 조정"})
+
+	out := call(t, cs, "task_status", map[string]any{
+		"ref": "#1", "status": "blocked", "reason": "외부 의존성으로 인한 대기",
+	})
+	if _, ok := out["warnings"]; !ok {
+		t.Error("상대도 기한도 없는 보류에 경고가 없음")
 	}
-	if w := noteAdvice(strings.Repeat("계획 항목\n", 12)); w == "" {
-		t.Fatal("문서 수준 note 에 경고가 없음")
+	out = call(t, cs, "task_status", map[string]any{
+		"ref": "#1", "status": "blocked", "reason": "A팀 스펙 대기 — 9/12 요청, 18일까지 준다고 함",
+	})
+	if w, ok := out["warnings"]; ok {
+		t.Errorf("잘 쓴 사유에 경고: %v", w)
 	}
 }
