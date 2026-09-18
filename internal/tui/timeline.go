@@ -40,7 +40,7 @@ func (m *Model) timelineWindow() (domain.Date, int) {
 	if start.IsZero() {
 		start = m.svc.Today().WeekStart()
 	}
-	weeks := (m.innerWidth() - tlLabelMin) / (7 * tlCell)
+	weeks := (m.contentWidth() - tlLabelMin) / (7 * tlCell)
 	if weeks > tlMaxWeeks {
 		weeks = tlMaxWeeks
 	}
@@ -108,7 +108,7 @@ func (m *Model) shiftTimeline(weeks int) {
 func (m *Model) timelineView(avail int) string {
 	today := m.svc.Today()
 	start, days := m.timelineWindow()
-	labelW := m.innerWidth() - days*tlCell - 1
+	labelW := m.contentWidth() - days*tlCell - 1
 	if labelW < 8 {
 		labelW = 8
 	}
@@ -141,7 +141,7 @@ func (m *Model) timelineView(avail int) string {
 		if t == nil {
 			continue
 		}
-		m.hits = append(m.hits, hit{y: y, x0: 0, x1: m.innerWidth(), kind: hitRow, a: i})
+		m.hits = append(m.hits, hit{y: y, x0: 0, x1: m.contentWidth(), kind: hitRow, a: i})
 		y++
 		b.WriteString(m.timelineRow(i, t, start, days, labelW, today) + "\n")
 	}

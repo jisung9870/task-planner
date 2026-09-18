@@ -58,7 +58,7 @@ func (m *Model) View() string {
 		body = m.viewsPane()
 	case m.splitActive():
 		body = m.splitBody(avail)
-	case m.detail && m.tab != tabBoard:
+	case m.detail:
 		// Narrow terminal: the detail pane borrows from the same budget so
 		// the footer never scrolls off; give it the smaller share.
 		detailH := avail * 2 / 5
@@ -179,20 +179,54 @@ func (m *Model) formPane() string {
 // wide reports whether the terminal can afford a side-by-side split.
 func (m *Model) wide() bool { return m.innerWidth() >= 100 }
 
-// splitActive: the right-hand detail pane renders on wide terminals for list
-// tabs whenever a task is selected. Grid tabs draw their own columns.
+// splitActive: the right-hand detail pane renders on wide terminals on every
+// tab that lists tasks. Grid and chart tabs used to be excluded so they could
+// keep the full width; they now shrink into the left column instead, because a
+// board you cannot inspect from is a board you have to leave in order to work.
+//
+// It deliberately does not ask what the cursor is on. The Timeline derives its
+// day range from contentWidth and then selects the rows that fall inside it -
+// had the pane appeared only once a row was selected, the width would decide
+// the rows and the rows would decide the width. The price, accepted knowingly,
+// is that a tab with nothing in it draws "(표시할 항목 없음)" in the left
+// column beside an empty pane rather than across the whole screen.
 func (m *Model) splitActive() bool {
-	// Timeline draws to the full width for the same reason: half a chart is
-	// half a schedule.
-	return m.wide() && m.wideDetail && !m.gridTab() && m.tab != tabTimeline && m.current() != nil
+	return m.wide() && m.wideDetail && m.tabListsTasks()
 }
+
+// tabListsTasks reports whether the current tab puts tasks under the cursor.
+// The Projects rollup lists projects, so a detail pane there would have nothing
+// to show on any row; drilling into one turns it back into a task list.
+func (m *Model) tabListsTasks() bool { return m.tab != tabProjects || m.projDrill }
+
+// contentWidth is the width the list, grid, or chart may draw into: the whole
+// screen, or the left column once the detail pane takes its share. Every
+// renderer that measures itself must use this instead of innerWidth - the
+// grids lay their columns out by hand, and a stale width tears the join.
+func (m *Model) contentWidth() int {
+	if m.splitActive() {
+		return splitListWidth(m.innerWidth())
+	}
+	return m.innerWidth()
+}
+
+// gridColWidth divides a grid tab's width among n columns. Every column
+// carries its own MarginRight(2), the last one included, so the gutters number
+// as many as the columns - not one fewer. The extra two columns used to fall
+// off the right edge unseen; beside the detail pane they would land on the
+// divider instead.
+func gridColWidth(width, n int) int { return (width - 2*n) / n }
+
+// splitListWidth is the left column's share of a split frame. Board and Week
+// fall back to their stacked layouts on their own when this leaves the columns
+// too thin, so no tab needs a width exception here.
+func splitListWidth(width int) int { return width * 11 / 20 }
 
 // splitBody renders list and detail side by side, both clipped to the height
 // budget and to their column widths (ANSI-aware via lipgloss MaxWidth).
 func (m *Model) splitBody(avail int) string {
-	width := m.innerWidth()
-	listW := width * 11 / 20
-	detailW := width - listW - 3 // " │ " divider
+	listW := m.contentWidth()
+	detailW := m.innerWidth() - listW - 3 // " │ " divider
 
 	// lipgloss Width() word-wraps long lines; a list row must truncate instead,
 	// so fit each line by hand with the ANSI-aware truncator.
@@ -413,7 +447,7 @@ func (m *Model) list(avail int) string {
 	for i := start; i < end; i++ {
 		r := m.rows[i]
 		if r.selectable() {
-			m.hits = append(m.hits, hit{y: y, x0: 0, x1: m.innerWidth(), kind: hitRow, a: i})
+			m.hits = append(m.hits, hit{y: y, x0: 0, x1: m.contentWidth(), kind: hitRow, a: i})
 		}
 		y++
 		switch {
@@ -589,8 +623,8 @@ func (m *Model) dueNote(t *domain.Task, today domain.Date, far bool) string {
 
 // board renders the kanban lanes side by side.
 func (m *Model) board(avail int) string {
-	width := m.innerWidth()
-	colWidth := (width - 2*(len(boardColumns)-1)) / len(boardColumns)
+	width := m.contentWidth()
+	colWidth := gridColWidth(width, len(boardColumns))
 	today := m.svc.Today()
 	// Cards are two lines; reserve the column header (2) and footer (1).
 	maxCards := (avail - 3) / 2
@@ -600,7 +634,7 @@ func (m *Model) board(avail int) string {
 	if colWidth < 18 {
 		// Narrow terminals stack the lanes instead of rendering unreadable
 		// slivers. Cursor addressing is unchanged, so keys behave the same.
-		return m.boardStacked(width, today)
+		return m.boardStacked(width, avail, today)
 	}
 	panes := make([]string, len(boardColumns))
 	for i, st := range boardColumns {
@@ -611,7 +645,7 @@ func (m *Model) board(avail int) string {
 }
 
 // boardStacked renders the same lanes one under another for narrow terminals.
-func (m *Model) boardStacked(width int, today domain.Date) string {
+func (m *Model) boardStacked(width, avail int, today domain.Date) string {
 	var b strings.Builder
 	y := bodyTop
 	for i, st := range boardColumns {
@@ -619,7 +653,13 @@ func (m *Model) boardStacked(width int, today domain.Date) string {
 		y++
 		for r, t := range m.cols[i] {
 			b.WriteString(m.card(t, domain.Date{}, width, i == m.colCursor && r == m.rowCursor, today) + "\n")
-			m.hitCard(y, 0, width, i, r)
+			// fitHeight clips the text that runs past the budget but cannot
+			// clip m.hits, so a card recorded below the fold would sit under
+			// the divider or the detail pane and steal their clicks. A card is
+			// two lines, so both have to fall inside the budget.
+			if y-bodyTop+2 <= avail {
+				m.hitCard(y, 0, width, i, r)
+			}
 			y += 2
 		}
 	}
@@ -747,11 +787,11 @@ func truncate(s string, w int) string {
 // weekGrid renders 요일 7컬럼 + 하단 미배정 lane. Answers "이번 주 뭐가 어디
 // 배치돼 있나" with an actual time axis - the grouped list could not.
 func (m *Model) weekGrid(avail int) string {
-	width := m.innerWidth()
-	colW := (width - 2*6) / 7
+	width := m.contentWidth()
+	colW := gridColWidth(width, 7)
 	today := m.svc.Today()
 	if colW < 13 {
-		return m.weekStacked(width, today)
+		return m.weekStacked(width, avail, today)
 	}
 
 	// The 미배정 lane takes its share off the top of the budget.
@@ -776,7 +816,7 @@ func (m *Model) weekGrid(avail int) string {
 	}
 	out := strings.TrimRight(lipgloss.JoinHorizontal(lipgloss.Top, panes...), "\n")
 	if laneH > 0 {
-		out += "\n" + m.weekLane(lane, width, laneMax, bodyTop+lipgloss.Height(out))
+		out += "\n" + m.weekLane(lane, width, laneMax, bodyTop+lipgloss.Height(out), avail)
 	}
 	return out
 }
@@ -860,7 +900,7 @@ func compactHours(d domain.Duration) string {
 
 // weekLane renders the 미배정 strip: work that belongs to the week but has no
 // day yet. `]` pulls a task onto today.
-func (m *Model) weekLane(lane []*domain.Task, width, laneMax, y int) string {
+func (m *Model) weekLane(lane []*domain.Task, width, laneMax, y, avail int) string {
 	today := m.svc.Today()
 	var b strings.Builder
 	head := fmt.Sprintf("미배정 (%d)", len(lane))
@@ -877,7 +917,9 @@ func (m *Model) weekLane(lane []*domain.Task, width, laneMax, y int) string {
 	end := min(start+laneMax, len(lane))
 	for r := start; r < end; r++ {
 		// A lane entry is a single line, not a two-line card.
-		m.hits = append(m.hits, hit{y: y, x0: 0, x1: width, kind: hitCard, a: weekLaneUnassigned, b: r})
+		if y-bodyTop < avail {
+			m.hits = append(m.hits, hit{y: y, x0: 0, x1: width, kind: hitCard, a: weekLaneUnassigned, b: r})
+		}
 		y++
 		t := lane[r]
 		cursor := selMark(m.colCursor == weekLaneUnassigned && r == m.rowCursor, m.marked[t.ID])
@@ -897,7 +939,7 @@ func (m *Model) weekLane(lane []*domain.Task, width, laneMax, y int) string {
 }
 
 // weekStacked lists the days vertically for narrow terminals.
-func (m *Model) weekStacked(width int, today domain.Date) string {
+func (m *Model) weekStacked(width, avail int, today domain.Date) string {
 	var b strings.Builder
 	y := bodyTop
 	for i, d := range m.weekDays {
@@ -912,12 +954,14 @@ func (m *Model) weekStacked(width int, today domain.Date) string {
 		y++
 		for r, t := range m.cols[i] {
 			b.WriteString(m.card(t, d, width, i == m.colCursor && r == m.rowCursor, today) + "\n")
-			m.hitCard(y, 0, width, i, r)
+			if y-bodyTop+2 <= avail {
+				m.hitCard(y, 0, width, i, r)
+			}
 			y += 2
 		}
 	}
 	if lane := m.cols[weekLaneUnassigned]; len(lane) > 0 {
-		b.WriteString(m.weekLane(lane, width, len(lane), bodyTop+lipgloss.Height(b.String())))
+		b.WriteString(m.weekLane(lane, width, len(lane), bodyTop+lipgloss.Height(b.String()), avail))
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

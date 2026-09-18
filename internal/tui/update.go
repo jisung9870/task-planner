@@ -21,6 +21,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		// The two flags belong to two layouts, and only one of them may be set
+		// at a time or enter ends up cycling between the split and a bottom
+		// pane with no way to close either. Widening carries the pane over
+		// rather than dropping it: the user asking for detail on a narrow
+		// terminal has not changed their mind by making the window bigger.
+		if m.wide() && m.detail {
+			m.wideDetail, m.detail = true, false
+		}
 		if m.tab == tabTimeline {
 			// The window length is derived from the width, so the rows the
 			// chart selected are stale as soon as the terminal is resized.
@@ -99,13 +107,117 @@ func (m *Model) updateMouse(msg tea.MouseMsg) {
 			m.switchTab(tab(h.a))
 		case hitRow:
 			m.cursor = h.a
-			m.detailOffset = 0
+			if m.tab == tabProjects && !m.projDrill {
+				m.drillProject()
+			} else {
+				m.openDetail()
+			}
 		case hitCard:
 			m.colCursor, m.rowCursor = h.a, h.b
-			m.detailOffset = 0
+			m.openDetail()
 		}
 		return
 	}
+}
+
+// toggleDetail flips the detail pane for the current layout: the right column
+// on a wide terminal, the bottom pane on a narrow one. Every tab goes through
+// here so enter means the same thing everywhere.
+//
+// Closing always works; opening goes through openDetail and so needs something
+// to show. On an empty view - an empty board, a filter matching nothing - enter
+// therefore folds the pane and a second enter does nothing until a task exists.
+// That asymmetry is the point, not an oversight: see openDetail.
+//
+// The predicate reads the flags rather than asking splitActive whether a pane
+// is on screen, so it stays right on a tab that draws no pane. esc is the
+// opposite case and asks splitActive deliberately - it unwinds what the user
+// can see, and must fall through to the filter on a tab with nothing to fold.
+func (m *Model) toggleDetail() {
+	if m.detail || (m.wide() && m.wideDetail) {
+		m.setDetail(false)
+		return
+	}
+	m.openDetail()
+}
+
+// openDetail shows the pane without closing an open one - what a click on a
+// row or a card does, where toggling would make the second click on the same
+// task hide the thing the click asked to see. With nothing selectable under
+// the cursor it does nothing: an empty pane taking two fifths of a narrow
+// screen is a worse answer than no pane.
+func (m *Model) openDetail() {
+	if m.current() == nil {
+		return
+	}
+	m.setDetail(true)
+}
+
+// setDetail is the only writer of the two pane flags outside a resize. Each
+// layout owns one flag and clears the other's, so "is the pane showing" has a
+// single answer and no caller can forget the refit below - the esc path used
+// to close the pane behind its back and leave the Timeline drawing a four-week
+// axis over three weeks of rows.
+func (m *Model) setDetail(on bool) {
+	m.detailOffset = 0
+	width := m.contentWidth()
+	if m.wide() {
+		m.wideDetail, m.detail = on, false
+	} else {
+		m.detail = on
+	}
+	// The width is the whole precondition: only the wide pane takes its share
+	// of the columns, and only the Timeline turns columns into rows. A narrow
+	// toggle splits the height instead, and a click on an already-open pane
+	// changes nothing - neither is worth a query.
+	if m.contentWidth() != width {
+		m.refitTimeline()
+	}
+}
+
+// refitTimeline rescans the chart after the content width changed. Its visible
+// day range is derived from that width, so the rows picked against the old
+// range no longer match the axis about to be drawn.
+func (m *Model) refitTimeline() {
+	if m.tab != tabTimeline {
+		return
+	}
+	// reload rebuilds m.rows, so the cursor - a position in the old list - has
+	// to be re-aimed at the task it was actually on.
+	t := m.current()
+	m.reload()
+	if t == nil {
+		return
+	}
+	m.selectID(t.ID)
+	if cur := m.current(); cur != nil && cur.ID == t.ID {
+		return
+	}
+	// The shorter window dropped the task the cursor was on: it sits past the
+	// new right edge. Follow it rather than opening whatever inherited its row
+	// - a click has to answer with the task it landed on.
+	m.tlStart = t.SpanStart().WeekStart()
+	m.reload()
+	m.selectID(t.ID)
+	start, days := m.timelineWindow()
+	m.setStatus("타임라인 %s ~ %s (선택한 일에 맞춰 이동)", start, start.AddDays(days-1))
+}
+
+// drillProject opens the project under the cursor as a task list. enter and a
+// click both land here: a click that opened a detail pane instead would make
+// the mouse mean something the keyboard does not.
+func (m *Model) drillProject() {
+	if m.cursor < 0 || m.cursor >= len(m.rows) {
+		return
+	}
+	r := m.rows[m.cursor]
+	if r.proj == nil {
+		return
+	}
+	m.projDrill, m.projSlug = true, r.proj.Slug
+	m.cursor = 0
+	m.reload()
+	m.setStatus("프로젝트: %s (esc 로 목록)", query.ProjectLabel(m.projSlug))
 }
 
 // moveSelection is one step of cursor movement in whichever model the current
@@ -299,10 +411,8 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case len(m.marked) > 0:
 			m.marked = map[string]bool{}
 			m.setStatus("선택 해제")
-		case m.detail:
-			m.detail = false
-		case m.splitActive():
-			m.wideDetail = false
+		case m.detail || m.splitActive():
+			m.setDetail(false)
 		case m.search != "":
 			m.search, m.filter = "", nil
 			m.reload()
@@ -314,19 +424,10 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "enter":
 		if m.tab == tabProjects && !m.projDrill {
-			if r := m.rows[m.cursor]; r.proj != nil {
-				m.projDrill, m.projSlug = true, r.proj.Slug
-				m.cursor = 0
-				m.reload()
-				m.setStatus("프로젝트: %s (esc 로 목록)", query.ProjectLabel(m.projSlug))
-			}
+			m.drillProject()
 			return m, nil
 		}
-		if m.wide() && m.tab != tabBoard && m.tab != tabTimeline {
-			m.wideDetail = !m.wideDetail
-		} else {
-			m.detail = !m.detail
-		}
+		m.toggleDetail()
 	case "r":
 		m.refresh(false)
 	case "R":
