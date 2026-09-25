@@ -4,6 +4,8 @@ package tui
 
 import (
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -15,6 +17,13 @@ import (
 )
 
 type tab int
+
+type listGrouping string
+
+const (
+	groupStatus  listGrouping = "status"
+	groupProject listGrouping = "project"
+)
 
 const (
 	tabToday tab = iota
@@ -130,10 +139,11 @@ type hit struct {
 type Model struct {
 	svc *service.Service
 
-	tab    tab
-	mode   mode
-	rows   []row
-	cursor int
+	tab      tab
+	mode     mode
+	rows     []row
+	cursor   int
+	grouping listGrouping
 	// detail: bottom pane toggle for narrow terminals.
 	// wideDetail: right pane toggle for wide terminals - on by default, because
 	// the pane is the point of the split layout.
@@ -235,7 +245,7 @@ func New(svc *service.Service) *Model {
 	in.Prompt = ""
 	in.PromptStyle = styPrompt
 	in.CharLimit = 400
-	m := &Model{svc: svc, input: in, wideDetail: true,
+	m := &Model{svc: svc, input: in, wideDetail: true, grouping: groupStatus,
 		marked: map[string]bool{}, history: map[mode][]string{}}
 	// The tab and panel layout are the two things a user notices resetting on
 	// every launch; both are disposable state living next to the index.
@@ -244,6 +254,9 @@ func New(svc *service.Service) *Model {
 		m.tab = tab(ui.Tab)
 	}
 	m.wideDetail = ui.WideDetail
+	if ui.ListGrouping == string(groupProject) {
+		m.grouping = groupProject
+	}
 	// Rolling over before the first render means the morning view is already
 	// correct instead of showing yesterday's dates.
 	if rep, err := svc.RolloverIfEnabled(); err != nil {
@@ -305,7 +318,11 @@ func (m *Model) reload() {
 	if m.filter != nil && !m.filter.Empty() {
 		ts = m.svc.ApplyFilter(m.filter, ts)
 	}
-	m.rows = groupRows(ts)
+	if m.grouping == groupProject && (m.tab == tabToday || m.tab == tabAll) {
+		m.rows = groupProjectRows(ts)
+	} else {
+		m.rows = groupRows(ts)
+	}
 	m.clampCursor()
 }
 
@@ -320,6 +337,42 @@ func groupRows(ts []*domain.Task) []row {
 		}
 		rows = append(rows, row{header: fmt.Sprintf("%s (%d)", st.Label(), len(g))})
 		for _, t := range g {
+			rows = append(rows, row{task: t})
+		}
+	}
+	return rows
+}
+
+// groupProjectRows keeps the source view's task order inside each project.
+// An unassigned task gets its own final bucket so it cannot disappear.
+func groupProjectRows(ts []*domain.Task) []row {
+	groups := make(map[string][]*domain.Task)
+	for _, t := range ts {
+		groups[t.Project] = append(groups[t.Project], t)
+	}
+	projects := make([]string, 0, len(groups))
+	for project := range groups {
+		projects = append(projects, project)
+	}
+	sort.Slice(projects, func(i, j int) bool {
+		if projects[i] == "" || projects[j] == "" {
+			return projects[j] == ""
+		}
+		a, b := strings.ToLower(projects[i]), strings.ToLower(projects[j])
+		if a == b {
+			return projects[i] < projects[j]
+		}
+		return a < b
+	})
+	var rows []row
+	for _, project := range projects {
+		tasks := groups[project]
+		label := project
+		if label == "" {
+			label = "(미지정)"
+		}
+		rows = append(rows, row{header: fmt.Sprintf("%s (%d)", label, len(tasks))})
+		for _, t := range tasks {
 			rows = append(rows, row{task: t})
 		}
 	}

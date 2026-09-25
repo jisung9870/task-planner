@@ -340,6 +340,13 @@ func (m *Model) tabs() string {
 	if m.projDrill {
 		suffix = append(suffix, "프로젝트:"+query.ProjectLabel(m.projSlug))
 	}
+	if m.tab == tabToday || m.tab == tabAll {
+		label := "상태별"
+		if m.grouping == groupProject {
+			label = "프로젝트별"
+		}
+		suffix = append(suffix, "목록:"+label+" (f 전환)")
+	}
 	// A grid showing another week looks exactly like one showing this week -
 	// say which, and how to get back.
 	if m.tab == tabWeek && !m.wkStart.IsZero() {

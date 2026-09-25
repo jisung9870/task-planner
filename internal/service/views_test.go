@@ -116,11 +116,11 @@ func TestUIStateRoundTrips(t *testing.T) {
 	if st := svc.LoadUIState(); st.Tab != 0 || !st.WideDetail {
 		t.Fatalf("기본값 = %+v", st)
 	}
-	if err := svc.SaveUIState(UIState{Tab: 3, WideDetail: false}); err != nil {
+	if err := svc.SaveUIState(UIState{Tab: 3, WideDetail: false, ListGrouping: "project"}); err != nil {
 		t.Fatal(err)
 	}
 	st := svc.LoadUIState()
-	if st.Tab != 3 || st.WideDetail {
+	if st.Tab != 3 || st.WideDetail || st.ListGrouping != "project" {
 		t.Fatalf("%+v", st)
 	}
 }

@@ -478,6 +478,23 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "v":
 		m.mode = modeViews
 		m.viewCursor = 0
+	case "f":
+		if m.tab != tabToday && m.tab != tabAll {
+			break
+		}
+		selected := m.current()
+		if m.grouping == groupProject {
+			m.grouping = groupStatus
+			m.setStatus("목록 묶음: 상태별")
+		} else {
+			m.grouping = groupProject
+			m.setStatus("목록 묶음: 프로젝트별")
+		}
+		m.reload()
+		if selected != nil {
+			m.selectID(selected.ID)
+		}
+		m.listOffset = 0
 	case "e":
 		if p := m.currentProj(); p != nil {
 			return m, m.openProjectEditor(p)
@@ -1147,7 +1164,7 @@ func (m *Model) runningTask() *domain.Task {
 
 // saveUIState persists the layout choices worth restoring next launch.
 func (m *Model) saveUIState() {
-	_ = m.svc.SaveUIState(service.UIState{Tab: int(m.tab), WideDetail: m.wideDetail})
+	_ = m.svc.SaveUIState(service.UIState{Tab: int(m.tab), WideDetail: m.wideDetail, ListGrouping: string(m.grouping)})
 }
 
 // selectID keeps the cursor on the same task across a reload. On a grid tab a
