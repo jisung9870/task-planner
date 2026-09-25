@@ -3,6 +3,7 @@ package domain
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -90,6 +91,9 @@ type Task struct {
 
 	Body string `yaml:"-"`
 	Path string `yaml:"-"`
+	// DisplayRef is a derived, vault-aware reference for a sequence number shared
+	// by older tasks. It never belongs in markdown or the index.
+	DisplayRef string `yaml:"-" json:"-"`
 
 	// lastSession is the duration just accumulated, used to annotate the log
 	// line. It is transient and never serialized.
@@ -294,14 +298,31 @@ func Slug(title string) string {
 	return s
 }
 
-// NewID builds T-YYYYMMDD-NNNN. seq is the count of tasks already created that
-// day, so ids stay sortable and collision-free without a central counter.
+// NewID builds T-YYYYMMDD-NNNN. The date records creation while seq is unique
+// across the vault, including archived tasks.
 func NewID(d Date, seq int) string {
 	return fmt.Sprintf("T-%s-%04d", d.Time().Format("20060102"), seq)
 }
 
-// ShortID is the display form used in narrow list columns.
-func (t *Task) ShortID() string { return ShortRef(t.ID) }
+// ShortID is the display form used in narrow list columns. Legacy collisions
+// receive a date-qualified reference from the service layer.
+func (t *Task) ShortID() string {
+	if t.DisplayRef != "" {
+		return t.DisplayRef
+	}
+	return ShortRef(t.ID)
+}
+
+// QualifiedRef is a compact unambiguous form of a canonical task id.
+func QualifiedRef(id string) string {
+	parts := strings.Split(id, "-")
+	if len(parts) == 3 && parts[0] == "T" && len(parts[1]) == 8 {
+		if n, err := strconv.Atoi(parts[2]); err == nil {
+			return fmt.Sprintf("#%s-%d", parts[1], n)
+		}
+	}
+	return id
+}
 
 // ShortRef renders any task id as "#12". Blocker lists store canonical ids but
 // showing them raw makes a one-line row unreadable.
@@ -314,11 +335,12 @@ func ShortRef(id string) string {
 	return id
 }
 
-// ShortRefs renders a list of ids.
+// ShortRefs renders canonical references for dependency lists. A dependency
+// label must remain actionable even when older tasks share a sequence number.
 func ShortRefs(ids []string) []string {
 	out := make([]string, len(ids))
 	for i, id := range ids {
-		out[i] = ShortRef(id)
+		out[i] = QualifiedRef(id)
 	}
 	return out
 }

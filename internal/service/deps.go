@@ -69,7 +69,7 @@ func (s *Service) dependsOn(from, target string, seen map[string]bool) bool {
 // can still show something useful.
 func (s *Service) Blockers(t *domain.Task) (known []*domain.Task, missing []string) {
 	for _, id := range t.BlockedBy {
-		if dep, ok := s.idx.Get(id); ok {
+		if dep, err := s.Resolve(id); err == nil {
 			known = append(known, dep)
 		} else {
 			missing = append(missing, id)

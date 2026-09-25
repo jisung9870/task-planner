@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"task-planner/internal/domain"
@@ -37,12 +38,16 @@ func (s *Service) Add(in AddInput) (*domain.Task, error) {
 		}
 	}
 	today := s.Today()
+	seq, err := s.nextSeq()
+	if err != nil {
+		return nil, err
+	}
 	status := in.Status
 	if status == "" {
 		status = domain.StatusTodo
 	}
 	t := &domain.Task{
-		ID:        domain.NewID(today, s.nextSeq(today)),
+		ID:        domain.NewID(today, seq),
 		Title:     title,
 		Status:    status,
 		Project:   strings.TrimSpace(in.Project),
@@ -84,20 +89,33 @@ func (s *Service) AddWithResult(in AddInput) (*Result, error) {
 	return res, nil
 }
 
-// nextSeq finds the next free per-day sequence number. Scanning the index is
-// fine at this scale and avoids a counter file that could drift from reality.
-func (s *Service) nextSeq(d domain.Date) int {
-	prefix := "T-" + d.Time().Format("20060102") + "-"
+// nextSeq continues numbering across dates. Archived files count too: moving
+// a finished task out of the active index must not make its number reusable.
+func (s *Service) nextSeq() (int, error) {
 	max := 0
 	for _, t := range s.All() {
-		if !strings.HasPrefix(t.ID, prefix) {
+		if n, ok := seqOf(t.ID); ok && n > max {
+			max = n
+		}
+	}
+	files, err := s.vault.TaskFiles(true)
+	if err != nil {
+		return 0, err
+	}
+	archivePrefix := s.vault.ArchiveDir() + string(filepath.Separator)
+	for _, path := range files {
+		if !strings.HasPrefix(path, archivePrefix) {
 			continue
+		}
+		t, err := s.vault.LoadTask(path)
+		if err != nil {
+			return 0, fmt.Errorf("아카이브 번호 확인 실패: %w", err)
 		}
 		if n, ok := seqOf(t.ID); ok && n > max {
 			max = n
 		}
 	}
-	return max + 1
+	return max + 1, nil
 }
 
 // Result carries a mutation outcome plus any non-fatal advice for the user.

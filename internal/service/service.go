@@ -91,8 +91,27 @@ func (s *Service) Rebuild() (index.Stats, error) { return s.idx.Rebuild() }
 
 func (s *Service) IndexStats() index.Stats { return s.idx.Stats() }
 
-// All returns every task summary (no body).
-func (s *Service) All() []*domain.Task { return s.idx.Tasks() }
+// All returns detached summaries with ambiguous legacy sequence numbers
+// qualified by their creation dates. The derived label never enters the index.
+func (s *Service) All() []*domain.Task {
+	indexed := s.idx.Tasks()
+	counts := make(map[int]int, len(indexed))
+	for _, t := range indexed {
+		if n, ok := seqOf(t.ID); ok {
+			counts[n]++
+		}
+	}
+	out := make([]*domain.Task, len(indexed))
+	for i, t := range indexed {
+		copy := *t
+		copy.DisplayRef = ""
+		if n, ok := seqOf(t.ID); ok && counts[n] > 1 {
+			copy.DisplayRef = domain.QualifiedRef(t.ID)
+		}
+		out[i] = &copy
+	}
+	return out
+}
 
 // TodayList answers "오늘 뭘 해야 하지".
 func (s *Service) TodayList() []*domain.Task { return query.Today(s.All(), s.Today()) }
@@ -127,7 +146,12 @@ func (s *Service) Load(ref string) (*domain.Task, error) {
 	if err != nil {
 		return nil, err
 	}
-	return s.vault.LoadTask(sum.Path)
+	t, err := s.vault.LoadTask(sum.Path)
+	if err != nil {
+		return nil, err
+	}
+	t.DisplayRef = sum.DisplayRef
+	return t, nil
 }
 
 // Resolve accepts a full id (T-20260912-0001), a short id (#421 or 421) or a
@@ -140,6 +164,9 @@ func (s *Service) Resolve(ref string) (*domain.Task, error) {
 	all := s.All()
 	for _, t := range all {
 		if strings.EqualFold(t.ID, ref) {
+			return t, nil
+		}
+		if strings.EqualFold(domain.QualifiedRef(t.ID), ref) {
 			return t, nil
 		}
 	}
@@ -181,7 +208,7 @@ func ambiguous(ref string, hits []*domain.Task) error {
 			fmt.Fprintf(&b, "\n  ... 외 %d개", len(hits)-i)
 			break
 		}
-		fmt.Fprintf(&b, "\n  %s  %s", t.ID, t.Title)
+		fmt.Fprintf(&b, "\n  %s  %s  %s", t.ShortID(), t.ID, t.Title)
 	}
 	return fmt.Errorf("%s", b.String())
 }
@@ -259,6 +286,7 @@ func (s *Service) hydrate(ts []*domain.Task) []*domain.Task {
 		if err != nil {
 			continue
 		}
+		full.DisplayRef = sum.DisplayRef
 		out = append(out, full)
 	}
 	return out

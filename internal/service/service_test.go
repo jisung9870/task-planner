@@ -45,6 +45,68 @@ func TestAddAssignsSequentialIDs(t *testing.T) {
 	}
 }
 
+func TestNumberingContinuesAcrossDatesAndArchive(t *testing.T) {
+	svc := newTestService(t)
+	first, err := svc.Add(AddInput{Title: "첫 작업"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	archived, err := svc.Add(AddInput{Title: "아카이브 작업"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.vault.ArchiveTask(archived); err != nil {
+		t.Fatal(err)
+	}
+	svc.idx.Remove(archived.ID)
+	svc.SetClock(func() time.Time { return time.Date(2026, 9, 13, 9, 0, 0, 0, time.Local) })
+	next, err := svc.Add(AddInput{Title: "다음 날 작업"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ID != "T-20260912-0001" || next.ID != "T-20260913-0003" || next.ShortID() != "#3" {
+		t.Fatalf("번호가 이어지지 않음: %s, %s (%s)", first.ID, next.ID, next.ShortID())
+	}
+}
+
+func TestLegacyDuplicateShortNumbersRemainDistinct(t *testing.T) {
+	svc := newTestService(t)
+	first, err := svc.Add(AddInput{Title: "첫날 작업"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherDay := domain.NewDate(2026, 9, 13)
+	second := &domain.Task{
+		ID: domain.NewID(otherDay, 1), Title: "둘째 날 작업", Status: domain.StatusTodo,
+		Created: otherDay, Updated: otherDay,
+	}
+	if err := svc.vault.SaveTask(second); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Sync(); err != nil {
+		t.Fatal(err)
+	}
+	for id, want := range map[string]string{
+		first.ID: "#20260912-1", second.ID: "#20260913-1",
+	} {
+		resolved, err := svc.Resolve(want)
+		if err != nil || resolved.ID != id || resolved.ShortID() != want {
+			t.Fatalf("%s → %v, %v", want, resolved, err)
+		}
+		loaded, err := svc.Load(id)
+		if err != nil || loaded.ShortID() != want {
+			t.Fatalf("load %s → %v, %v", id, loaded, err)
+		}
+	}
+	if _, err := svc.Resolve("#1"); err == nil || !strings.Contains(err.Error(), "2개") {
+		t.Fatalf("중복 번호를 거부하지 않음: %v", err)
+	}
+	newTask, err := svc.Add(AddInput{Title: "새 작업"})
+	if err != nil || newTask.ID != "T-20260912-0002" || newTask.ShortID() != "#2" {
+		t.Fatalf("새 번호: %v, %v", newTask, err)
+	}
+}
+
 func TestAddRejectsEmptyTitle(t *testing.T) {
 	svc := newTestService(t)
 	if _, err := svc.Add(AddInput{Title: "   "}); err == nil {
