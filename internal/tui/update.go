@@ -483,12 +483,16 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			break
 		}
 		selected := m.current()
-		if m.grouping == groupProject {
-			m.grouping = groupStatus
-			m.setStatus("목록 묶음: 상태별")
-		} else {
+		switch m.grouping {
+		case groupStatus:
 			m.grouping = groupProject
 			m.setStatus("목록 묶음: 프로젝트별")
+		case groupProject:
+			m.grouping = groupProjectStatus
+			m.setStatus("목록 묶음: 프로젝트 안에서 상태별")
+		default:
+			m.grouping = groupStatus
+			m.setStatus("목록 묶음: 상태별")
 		}
 		m.reload()
 		if selected != nil {

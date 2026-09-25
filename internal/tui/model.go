@@ -21,8 +21,10 @@ type tab int
 type listGrouping string
 
 const (
-	groupStatus  listGrouping = "status"
-	groupProject listGrouping = "project"
+	groupStatus        listGrouping = "status"
+	groupProject       listGrouping = "project"
+	groupProjectStatus listGrouping = "project-status"
+	recentDoneLimit                 = 30
 )
 
 const (
@@ -75,6 +77,7 @@ func (md mode) prompting() bool {
 // row is one rendered line: a group header, a task, or a project rollup.
 type row struct {
 	header string
+	indent int
 	task   *domain.Task
 	proj   *service.ProjectRow
 }
@@ -254,8 +257,9 @@ func New(svc *service.Service) *Model {
 		m.tab = tab(ui.Tab)
 	}
 	m.wideDetail = ui.WideDetail
-	if ui.ListGrouping == string(groupProject) {
-		m.grouping = groupProject
+	switch listGrouping(ui.ListGrouping) {
+	case groupProject, groupProjectStatus:
+		m.grouping = listGrouping(ui.ListGrouping)
 	}
 	// Rolling over before the first render means the morning view is already
 	// correct instead of showing yesterday's dates.
@@ -318,9 +322,15 @@ func (m *Model) reload() {
 	if m.filter != nil && !m.filter.Empty() {
 		ts = m.svc.ApplyFilter(m.filter, ts)
 	}
-	if m.grouping == groupProject && (m.tab == tabToday || m.tab == tabAll) {
+	if m.tab == tabAll {
+		ts = limitRecentDone(ts, recentDoneLimit)
+	}
+	switch {
+	case (m.tab == tabToday || m.tab == tabAll) && m.grouping == groupProject:
 		m.rows = groupProjectRows(ts)
-	} else {
+	case (m.tab == tabToday || m.tab == tabAll) && m.grouping == groupProjectStatus:
+		m.rows = groupProjectStatusRows(ts)
+	default:
 		m.rows = groupRows(ts)
 	}
 	m.clampCursor()
@@ -346,6 +356,49 @@ func groupRows(ts []*domain.Task) []row {
 // groupProjectRows keeps the source view's task order inside each project.
 // An unassigned task gets its own final bucket so it cannot disappear.
 func groupProjectRows(ts []*domain.Task) []row {
+	groups, projects := groupProjects(ts)
+	var rows []row
+	for _, project := range projects {
+		tasks := groups[project]
+		rows = append(rows, row{header: fmt.Sprintf("%s (%d)", projectLabel(project), len(tasks))})
+		for _, t := range tasks {
+			rows = append(rows, row{task: t})
+		}
+	}
+	return rows
+}
+
+// groupProjectStatusRows keeps projects together, then splits each project by
+// status. Task order within a status remains the source view's order.
+func groupProjectStatusRows(ts []*domain.Task) []row {
+	groups, projects := groupProjects(ts)
+	var rows []row
+	for _, project := range projects {
+		tasks := groups[project]
+		rows = append(rows, row{header: fmt.Sprintf("%s (%d)", projectLabel(project), len(tasks))})
+		byStatus := domain.GroupByStatus(tasks)
+		for _, status := range domain.AllStatuses {
+			items := byStatus[status]
+			if len(items) == 0 {
+				continue
+			}
+			rows = append(rows, row{header: fmt.Sprintf("%s (%d)", status.Label(), len(items)), indent: 1})
+			for _, t := range items {
+				rows = append(rows, row{task: t})
+			}
+		}
+	}
+	return rows
+}
+
+func projectLabel(project string) string {
+	if project == "" {
+		return "(미지정)"
+	}
+	return project
+}
+
+func groupProjects(ts []*domain.Task) (map[string][]*domain.Task, []string) {
 	groups := make(map[string][]*domain.Task)
 	for _, t := range ts {
 		groups[t.Project] = append(groups[t.Project], t)
@@ -364,19 +417,48 @@ func groupProjectRows(ts []*domain.Task) []row {
 		}
 		return a < b
 	})
-	var rows []row
-	for _, project := range projects {
-		tasks := groups[project]
-		label := project
-		if label == "" {
-			label = "(미지정)"
-		}
-		rows = append(rows, row{header: fmt.Sprintf("%s (%d)", label, len(tasks))})
-		for _, t := range tasks {
-			rows = append(rows, row{task: t})
+	return groups, projects
+}
+
+// limitRecentDone limits only completed tasks in All. Filtering happens first,
+// so an older completed task can still be found by a specific query.
+func limitRecentDone(ts []*domain.Task, limit int) []*domain.Task {
+	var done []*domain.Task
+	for _, t := range ts {
+		if t.Status == domain.StatusDone {
+			done = append(done, t)
 		}
 	}
-	return rows
+	if len(done) == 0 {
+		return ts
+	}
+	sort.Slice(done, func(i, j int) bool {
+		a, b := done[i], done[j]
+		ad, bd := a.Completed, b.Completed
+		if ad.IsZero() {
+			ad = a.Updated
+		}
+		if bd.IsZero() {
+			bd = b.Updated
+		}
+		if !ad.Equal(bd) {
+			return ad.After(bd)
+		}
+		return a.ID > b.ID
+	})
+	out := make([]*domain.Task, 0, len(ts))
+	nextDone := 0
+	for _, t := range ts {
+		if t.Status != domain.StatusDone {
+			out = append(out, t)
+			continue
+		}
+		if nextDone < limit {
+			out = append(out, done[nextDone])
+		}
+		nextDone++
+	}
+	return out
 }
 
 // reloadBoard buckets open work into lanes. The board always shows the whole

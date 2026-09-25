@@ -51,7 +51,7 @@ const helpFull = `키
               v → s  현재 필터를 이름 붙여 저장 (config.yaml 의 views)
   탭          1 Today  2 Week  3 Board  4 Timeline  5 Projects  6 All
               tab / shift+tab  다음·이전 탭으로 순환
-  목록        f  Today·All 목록의 상태별 / 프로젝트별 묶음 전환
+  목록        f  Today·All 목록의 상태별 → 프로젝트별 → 프로젝트·상태별 전환
               프로젝트가 없는 태스크는 프로젝트별 목록의 (미지정)에 표시됩니다.
   추가        a  한 줄 캡처 — 나머지 필드는 나중에
               A  폼 캡처 — 제목·설명·기간·태그를 한 화면에서 (Jira 식)

@@ -342,8 +342,11 @@ func (m *Model) tabs() string {
 	}
 	if m.tab == tabToday || m.tab == tabAll {
 		label := "상태별"
-		if m.grouping == groupProject {
+		switch m.grouping {
+		case groupProject:
 			label = "프로젝트별"
+		case groupProjectStatus:
+			label = "프로젝트·상태별"
 		}
 		suffix = append(suffix, "목록:"+label+" (f 전환)")
 	}
@@ -463,7 +466,7 @@ func (m *Model) list(avail int) string {
 		case r.task != nil:
 			b.WriteString(m.renderTaskRow(i, r.task, today))
 		default:
-			b.WriteString(styGroup.Render("▾ " + r.header))
+			b.WriteString(styGroup.Render(strings.Repeat("  ", r.indent) + "▾ " + r.header))
 		}
 		b.WriteString("\n")
 	}
