@@ -196,7 +196,8 @@ func (m *Model) refitTimeline() {
 	// The shorter window dropped the task the cursor was on: it sits past the
 	// new right edge. Follow it rather than opening whatever inherited its row
 	// - a click has to answer with the task it landed on.
-	m.tlStart = t.SpanStart().WeekStart()
+	startDate, _ := m.timelineBounds(t, m.svc.Today())
+	m.tlStart = startDate.WeekStart()
 	m.reload()
 	m.selectID(t.ID)
 	start, days := m.timelineWindow()
@@ -438,7 +439,6 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "A":
 		m.startForm()
 		return m, textinput.Blink
-	case "/":
 	case "F":
 		m.marked = map[string]bool{}
 		switch m.scope {
@@ -452,6 +452,7 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.reload()
 		m.saveUIState()
 		m.setStatus("작업 보기: %s", m.scope)
+	case "/":
 		m.startPrompt(modeSearch, "필터: ", m.search)
 		return m, textinput.Blink
 	case " ":
@@ -491,7 +492,15 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "v":
 		m.mode = modeViews
 		m.viewCursor = 0
+	case "z":
+		if m.tab == tabTimeline {
+			m.toggleTimelineScale()
+		}
 	case "f":
+		if m.tab == tabTimeline {
+			m.toggleTimelineMode()
+			break
+		}
 		if m.tab != tabToday && m.tab != tabAll {
 			break
 		}
@@ -848,6 +857,9 @@ func (m *Model) capture(title string) {
 // captured; projRow is the project row the cursor should stay on.
 func (m *Model) captureInput(title string) (service.AddInput, string) {
 	in := service.AddInput{Title: title}
+	if m.scope == "agent" {
+		in.Executor = domain.ExecutorAgent
+	}
 	// A task captured from the Today view is meant for today; from a project
 	// view it belongs to that project. Both save a follow-up edit.
 	if m.tab == tabToday {
@@ -857,9 +869,6 @@ func (m *Model) captureInput(title string) (service.AddInput, string) {
 		in.Status = domain.StatusDoing
 	}
 	// Capturing while a Week day column is selected schedules for that day.
-	if m.scope == "agent" {
-		in.Executor = domain.ExecutorAgent
-	}
 	if m.tab == tabWeek && m.colCursor < len(m.weekDays) {
 		in.Scheduled = m.weekDays[m.colCursor]
 	}
@@ -1184,7 +1193,7 @@ func (m *Model) runningTask() *domain.Task {
 
 // saveUIState persists the layout choices worth restoring next launch.
 func (m *Model) saveUIState() {
-	_ = m.svc.SaveUIState(service.UIState{Tab: int(m.tab), WideDetail: m.wideDetail, ListGrouping: string(m.grouping), ExecutorScope: m.scope})
+	_ = m.svc.SaveUIState(service.UIState{Tab: int(m.tab), WideDetail: m.wideDetail, ListGrouping: string(m.grouping), TimelineActual: m.tlActual, TimelineHourly: m.tlHourly, ExecutorScope: m.scope})
 }
 
 // selectID keeps the cursor on the same task across a reload. On a grid tab a

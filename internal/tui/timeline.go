@@ -33,9 +33,76 @@ const (
 	tlHeadLines = 3
 )
 
+// timelineBounds selects the dates for the active view without changing the plan.
+func (m *Model) timelineBounds(t *domain.Task, today domain.Date) (domain.Date, domain.Date) {
+	if m.tlActual {
+		return m.tlHistory[t.ID].Bounds(today)
+	}
+	s, e := t.SpanStart(), t.SpanEnd()
+	if e.Before(s) {
+		e = s
+	}
+	return s, e
+}
+
+func (m *Model) timelineInDay(t *domain.Task, d, today domain.Date) bool {
+	if m.tlActual {
+		return m.tlHistory[t.ID].InDay(d, today)
+	}
+	return t.InSpan(d)
+}
+
+func (m *Model) toggleTimelineMode() {
+	selected := m.current()
+	m.tlActual = !m.tlActual
+	m.listOffset, m.cursor = 0, 0
+	m.reload()
+	if selected != nil {
+		m.selectID(selected.ID)
+	}
+}
+
+func (m *Model) timelineModeLabel() string {
+	if m.tlActual {
+		return "실제 작업"
+	}
+	return "예정 일정"
+}
+
+// timelineWorkTimes shows minute precision separately from the daily axis.
+func (m *Model) timelineWorkTimes() string {
+	start, finish := "기록 없음", "미완료"
+	if t := m.current(); t != nil {
+		h := m.tlHistory[t.ID]
+		if len(h.Sessions) > 0 {
+			start = h.Sessions[0].Start.Format("2006-01-02 15:04")
+		}
+		if len(h.Finishes) > 0 {
+			f := h.Finishes[len(h.Finishes)-1]
+			finish = f.At.Format("2006-01-02 15:04") + " " + f.Status.Label()
+			if !t.Status.Terminal() {
+				finish += " (재개됨)"
+			}
+		} else if t.Status.Terminal() {
+			finish = "기록 없음"
+		}
+		if !h.Completed.IsZero() {
+			finish = h.Completed.String() + " (시각 미기록) " + t.Status.Label()
+		}
+		if t.Status == domain.StatusDoing {
+			finish += " · 진행중"
+		}
+	}
+	return truncate("  첫 시작 "+start, m.contentWidth()) + "\n" +
+		truncate("  마지막 종료 "+finish, m.contentWidth()) + "\n"
+}
+
 // timelineWindow resolves the visible range. The length is whole weeks so the
 // weekday row repeats cleanly under the date row.
 func (m *Model) timelineWindow() (domain.Date, int) {
+	if m.hourlyTimeline() {
+		return m.timelineDay(), 1
+	}
 	start := m.tlStart
 	if start.IsZero() {
 		start = m.svc.Today().WeekStart()
@@ -54,33 +121,48 @@ func (m *Model) timelineWindow() (domain.Date, int) {
 // 태스크는 그릴 자리가 없다 - 건수만 세어 알린다.
 func (m *Model) reloadTimeline(today domain.Date) {
 	start, days := m.timelineWindow()
-	m.tlStart = start
+	if m.hourlyTimeline() {
+		m.tlDay = start
+	} else {
+		m.tlStart = start
+	}
 	end := start.AddDays(days - 1)
 
 	ts := m.svc.All()
 	ts = m.filterTasks(ts)
+	if m.tlActual {
+		m.tlHistory = m.svc.WorkHistories(ts)
+	}
 	m.tlUndated = 0
 	rows := make([]row, 0, len(ts))
 	for _, t := range ts {
-		if t.SpanStart().IsZero() {
-			if t.IsOpen() {
+		s, e := m.timelineBounds(t, today)
+		if s.IsZero() {
+			if m.tlActual || t.IsOpen() {
 				m.tlUndated++
 			}
 			continue
 		}
-		if t.SpanOverlaps(start, end) {
-			rows = append(rows, row{task: t})
+		if !s.After(end) && !e.Before(start) {
+			for d := start; !d.After(end); d = d.AddDays(1) {
+				if m.timelineInDay(t, d, today) {
+					rows = append(rows, row{task: t})
+					break
+				}
+			}
 		}
 	}
 	// 간트는 시작 순으로 읽는다. 상태·우선순위 순으로 뿌리면 막대가 위아래로
 	// 튀어서 무엇이 무엇 뒤에 오는지가 사라진다.
 	sort.SliceStable(rows, func(i, j int) bool {
 		a, b := rows[i].task, rows[j].task
-		if !a.SpanStart().Equal(b.SpanStart()) {
-			return a.SpanStart().Before(b.SpanStart())
+		as, ae := m.timelineBounds(a, today)
+		bs, be := m.timelineBounds(b, today)
+		if !as.Equal(bs) {
+			return as.Before(bs)
 		}
-		if !a.SpanEnd().Equal(b.SpanEnd()) {
-			return a.SpanEnd().Before(b.SpanEnd())
+		if !ae.Equal(be) {
+			return ae.Before(be)
 		}
 		return a.ID < b.ID
 	})
@@ -90,6 +172,17 @@ func (m *Model) reloadTimeline(today domain.Date) {
 
 // shiftTimeline moves the window by whole weeks; 0 returns to 이번 주.
 func (m *Model) shiftTimeline(weeks int) {
+	if m.hourlyTimeline() {
+		if weeks == 0 {
+			m.tlDay = m.svc.Today()
+		} else {
+			m.tlDay = m.timelineDay().AddDays(weeks)
+		}
+		m.listOffset, m.cursor = 0, 0
+		m.reload()
+		m.setStatus("24시간 %s · %d건", m.tlDay, len(m.rows))
+		return
+	}
 	if weeks == 0 {
 		m.tlStart = m.svc.Today().WeekStart()
 	} else {
@@ -107,14 +200,27 @@ func (m *Model) timelineView(avail int) string {
 	today := m.svc.Today()
 	start, days := m.timelineWindow()
 	labelW := m.contentWidth() - days*tlCell - 1
+	if m.hourlyTimeline() {
+		labelW, _ = m.hourlyGeometry()
+	}
 	if labelW < 8 {
 		labelW = 8
 	}
 
 	var b strings.Builder
-	b.WriteString(m.timelineScale(start, days, labelW, today))
+	b.WriteString(truncate(styTabActive.Render("  "+m.timelineModeLabel())+styMuted.Render(" · f 전환 · z "+m.timelineScaleLabel()), m.contentWidth()) + "\n")
+	headLines := tlHeadLines + 1
+	if m.tlActual {
+		b.WriteString(m.timelineWorkTimes())
+		headLines += 2
+	}
+	if m.hourlyTimeline() {
+		b.WriteString(m.hourlyScale(labelW))
+	} else {
+		b.WriteString(m.timelineScale(start, days, labelW, today))
+	}
 
-	body := avail - tlHeadLines
+	body := avail - headLines
 	if m.tlUndated > 0 {
 		body-- // the 미배정 footnote takes its line off the same budget
 	}
@@ -123,13 +229,17 @@ func (m *Model) timelineView(avail int) string {
 	}
 
 	if len(m.rows) == 0 {
-		b.WriteString(styMuted.Render("  (이 기간에 잡힌 일이 없습니다 — h/l 로 주 이동, t 로 이번 주)"))
+		hint := "h/l 주 이동, t 이번 주"
+		if m.hourlyTimeline() {
+			hint = "h/l 날짜 이동, t 오늘"
+		}
+		b.WriteString(styMuted.Render(truncate("  (작업 없음 — "+hint+")", m.contentWidth())))
 		return b.String() + m.timelineFootnote()
 	}
 
 	m.ensureCursorVisible(body)
 	first, end, above, below := m.viewport(body)
-	y := bodyTop + tlHeadLines
+	y := bodyTop + headLines
 	if above > 0 {
 		b.WriteString(styMuted.Render(fmt.Sprintf("  ↑ %d건", above)) + "\n")
 		y++
@@ -141,7 +251,11 @@ func (m *Model) timelineView(avail int) string {
 		}
 		m.hits = append(m.hits, hit{y: y, x0: 0, x1: m.contentWidth(), kind: hitRow, a: i})
 		y++
-		b.WriteString(m.timelineRow(i, t, start, days, labelW, today) + "\n")
+		if m.hourlyTimeline() {
+			b.WriteString(m.hourlyRow(i, t, labelW) + "\n")
+		} else {
+			b.WriteString(m.timelineRow(i, t, start, days, labelW, today) + "\n")
+		}
 	}
 	if below > 0 {
 		b.WriteString(styMuted.Render(fmt.Sprintf("  ↓ %d건", below)) + "\n")
@@ -154,6 +268,9 @@ func (m *Model) timelineView(avail int) string {
 func (m *Model) timelineFootnote() string {
 	if m.tlUndated == 0 {
 		return ""
+	}
+	if m.tlActual {
+		return "\n" + styMuted.Render(fmt.Sprintf("  실제 기록 없음 %d건 — s 시작 · d 완료", m.tlUndated))
 	}
 	return "\n" + styMuted.Render(fmt.Sprintf("  날짜 없음 %d건 — D 로 기간을 넣으면 여기에 그려집니다", m.tlUndated))
 }
@@ -218,7 +335,7 @@ func (m *Model) timelineRow(i int, t *domain.Task, start domain.Date, days, labe
 	switch {
 	case t.Status.Terminal():
 		sty = styMuted
-	case t.Overdue(today):
+	case !m.tlActual && t.Overdue(today):
 		sty = styDanger
 	case t.Status == domain.StatusDoing:
 		sty = styDoing
@@ -227,16 +344,22 @@ func (m *Model) timelineRow(i int, t *domain.Task, start domain.Date, days, labe
 	}
 
 	end := start.AddDays(days - 1)
+	spanStart, spanEnd := m.timelineBounds(t, today)
+	continuesBefore, continuesAfter := spanStart.Before(start), spanEnd.After(end)
+	if m.tlActual {
+		continuesBefore, _ = m.tlHistory[t.ID].ContinuesAt(start, today)
+		_, continuesAfter = m.tlHistory[t.ID].ContinuesAt(end, today)
+	}
 	var bar strings.Builder
 	for i := 0; i < days; i++ {
 		d := start.AddDays(i)
 		switch {
-		case t.InSpan(d):
+		case m.timelineInDay(t, d, today):
 			cell := "██"
-			if i == 0 && t.SpanStart().Before(start) {
+			if i == 0 && continuesBefore {
 				cell = "◀█"
 			}
-			if i == days-1 && t.SpanEnd().After(end) {
+			if i == days-1 && continuesAfter {
 				cell = "█▶"
 			}
 			bar.WriteString(sty.Render(cell))
@@ -254,7 +377,10 @@ func (m *Model) timelineRow(i int, t *domain.Task, start domain.Date, days, labe
 // timelineLabel fills the gutter: 커서·상태·번호·제목 왼쪽, 마감 경고 오른쪽.
 func (m *Model) timelineLabel(i int, t *domain.Task, labelW int, today domain.Date) string {
 	cursor := selMark(i == m.cursor, m.marked[t.ID])
-	note := m.dueNote(t, today, false)
+	note := ""
+	if !m.tlActual {
+		note = m.dueNote(t, today, false)
+	}
 	inner := labelW - lipgloss.Width(cursor)
 	if w := lipgloss.Width(note); w > 0 {
 		inner -= w + 1

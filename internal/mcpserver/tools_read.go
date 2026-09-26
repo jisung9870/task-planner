@@ -66,6 +66,10 @@ type projectRow struct {
 	Remain   string  `json:"remain_estimate,omitempty" jsonschema:"열린 태스크의 예상 소요 합 (추정치가 있는 것만)"`
 }
 
+type projectRowsOut struct {
+	Rows []projectRow `json:"rows"`
+}
+
 type nextArgs struct {
 	Limit int `json:"limit,omitempty" jsonschema:"추천 개수 (기본 3, 0 이면 전부)"`
 }
@@ -73,6 +77,10 @@ type nextArgs struct {
 type nextOut struct {
 	Task   taskJSON `json:"task"`
 	Reason string   `json:"reason" jsonschema:"왜 이게 먼저인지 (마감·우선순위·후행 대기 등)"`
+}
+
+type nextRowsOut struct {
+	Rows []nextOut `json:"rows"`
 }
 
 type loadArgs struct {
@@ -90,6 +98,10 @@ type loadOut struct {
 	Over      bool   `json:"over,omitempty" jsonschema:"true 면 과다 배정"`
 }
 
+type loadRowsOut struct {
+	Rows []loadOut `json:"rows"`
+}
+
 type timeArgs struct {
 	Period string `json:"period,omitempty" jsonschema:"집계 기간: week(이번 주) 또는 all(전체, 기본)"`
 }
@@ -100,6 +112,10 @@ type timeRow struct {
 	Estimate string  `json:"estimate,omitempty"`
 	Actual   string  `json:"actual,omitempty"`
 	Ratio    float64 `json:"ratio,omitempty"`
+}
+
+type timeRowsOut struct {
+	Rows []timeRow `json:"rows"`
 }
 
 type reportArgs struct {
@@ -196,11 +212,11 @@ func (s *Server) registerReadTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "project_status",
 		Description: "프로젝트별 진행 현황: 건수 집계 + 진행률 + 남은 예상 시간 + 프로젝트 마감(마일스톤). 태스크가 아직 없는 프로젝트도 포함됨.",
-	}, func(ctx context.Context, req *mcp.CallToolRequest, _ any) (*mcp.CallToolResult, []projectRow, error) {
+	}, func(ctx context.Context, req *mcp.CallToolRequest, _ any) (*mcp.CallToolResult, projectRowsOut, error) {
 		defer s.begin()()
 		list, err := s.svc.ProjectRows()
 		if err != nil {
-			return nil, nil, err
+			return nil, projectRowsOut{}, err
 		}
 		rows := make([]projectRow, len(list))
 		for i, r := range list {
@@ -212,13 +228,13 @@ func (s *Server) registerReadTools() {
 				Progress: r.Progress(), Remain: r.Remain.String(),
 			}
 		}
-		return nil, rows, nil
+		return nil, projectRowsOut{Rows: rows}, nil
 	})
 
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "task_next",
 		Description: "지금 바로 할 수 있는 일 추천. 선행이 남지 않은 열린 태스크를 급한 순으로, 각각 그 이유와 함께 반환. 보류는 제외 (선행이 끝나면 자동으로 대기중이 되므로, 아직 보류면 이 도구가 모르는 것을 기다리는 중).",
-	}, func(ctx context.Context, req *mcp.CallToolRequest, in nextArgs) (*mcp.CallToolResult, []nextOut, error) {
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in nextArgs) (*mcp.CallToolResult, nextRowsOut, error) {
 		defer s.begin()()
 		limit := in.Limit
 		if limit == 0 {
@@ -233,18 +249,18 @@ func (s *Server) registerReadTools() {
 		for i, sg := range sugg {
 			out[i] = nextOut{Task: toTaskJSON(sg.Task, today), Reason: sg.Reason}
 		}
-		return nil, out, nil
+		return nil, nextRowsOut{Rows: out}, nil
 	})
 
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "day_load",
 		Description: "하루(또는 한 주)에 얼마나 잡혀 있는지. 계획을 세우기 전에 이걸로 빈 날을 찾을 것 — 예상 소요가 없는 태스크는 계산에 못 들어가므로 estimated/tasks 비율을 함께 볼 것.",
-	}, func(ctx context.Context, req *mcp.CallToolRequest, in loadArgs) (*mcp.CallToolResult, []loadOut, error) {
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in loadArgs) (*mcp.CallToolResult, loadRowsOut, error) {
 		defer s.begin()()
 		today := s.svc.Today()
 		ref, err := parseDate(in.Date, today)
 		if err != nil {
-			return nil, nil, err
+			return nil, loadRowsOut{}, err
 		}
 		if ref.IsZero() {
 			ref = today
@@ -261,13 +277,13 @@ func (s *Server) registerReadTools() {
 				Tasks: l.Tasks, Estimated: l.Estimated, Over: l.Over(),
 			}
 		}
-		return nil, out, nil
+		return nil, loadRowsOut{Rows: out}, nil
 	})
 
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "time_summary",
 		Description: "프로젝트별 예상(estimate) 대비 실소요(actual) 집계. ratio > 1 이면 예상이 낙관적이었다는 뜻.",
-	}, func(ctx context.Context, req *mcp.CallToolRequest, in timeArgs) (*mcp.CallToolResult, []timeRow, error) {
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in timeArgs) (*mcp.CallToolResult, timeRowsOut, error) {
 		defer s.begin()()
 		var from, to = s.svc.Today(), s.svc.Today()
 		if in.Period == "week" {
@@ -284,7 +300,7 @@ func (s *Server) registerReadTools() {
 				Estimate: r.Estimate.String(), Actual: r.Actual.String(), Ratio: r.Ratio(),
 			}
 		}
-		return nil, out, nil
+		return nil, timeRowsOut{Rows: out}, nil
 	})
 
 	mcp.AddTool(s.mcp, &mcp.Tool{

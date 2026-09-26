@@ -190,6 +190,10 @@ type Model struct {
 	// work the chart cannot place, which the tab reports instead of hiding.
 	tlStart   domain.Date
 	tlUndated int
+	tlActual  bool
+	tlHourly  bool
+	tlDay     domain.Date
+	tlHistory map[string]domain.WorkHistory
 
 	// projDrill is true while the Projects tab shows one project's tasks;
 	// projSlug may legitimately be empty (the "미지정" bucket).
@@ -258,6 +262,8 @@ func New(svc *service.Service) *Model {
 		m.tab = tab(ui.Tab)
 	}
 	m.wideDetail = ui.WideDetail
+	m.tlActual = ui.TimelineActual
+	m.tlHourly = ui.TimelineHourly
 	if ui.ExecutorScope == "human" || ui.ExecutorScope == "agent" || ui.ExecutorScope == "all" {
 		m.scope = ui.ExecutorScope
 	}
@@ -354,7 +360,6 @@ func (m *Model) filterTasks(ts []*domain.Task) []*domain.Task {
 	return ts
 }
 
-
 // groupRows flattens a task list into header + task rows.
 func groupRows(ts []*domain.Task) []row {
 	groups := domain.GroupByStatus(ts)
@@ -364,7 +369,6 @@ func groupRows(ts []*domain.Task) []row {
 		if len(g) == 0 {
 			continue
 		}
-
 		rows = append(rows, row{header: fmt.Sprintf("%s (%d)", st.Label(), len(g))})
 		for _, t := range g {
 			rows = append(rows, row{task: t})

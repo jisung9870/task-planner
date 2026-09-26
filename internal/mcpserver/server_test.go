@@ -60,12 +60,7 @@ func call(t *testing.T, cs *mcp.ClientSession, name string, args map[string]any)
 	}
 	var out map[string]any
 	if err := json.Unmarshal(raw, &out); err != nil {
-		// Some tools return arrays; wrap them for uniform access.
-		var arr []any
-		if err2 := json.Unmarshal(raw, &arr); err2 != nil {
-			t.Fatalf("%s 결과 파싱 실패: %v", name, err)
-		}
-		return map[string]any{"rows": arr}
+		t.Fatalf("%s 결과 파싱 실패: %v", name, err)
 	}
 	return out
 }
@@ -98,6 +93,16 @@ func TestNoDeleteToolExposed(t *testing.T) {
 	names := make([]string, 0, len(tools.Tools))
 	for _, tool := range tools.Tools {
 		names = append(names, tool.Name)
+		if tool.OutputSchema != nil {
+			raw, err := json.Marshal(tool.OutputSchema)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var schema map[string]any
+			if err := json.Unmarshal(raw, &schema); err != nil || schema["type"] != "object" {
+				t.Fatalf("%s outputSchema 는 object 여야 한다: %s", tool.Name, raw)
+			}
+		}
 		if strings.Contains(tool.Name, "delete") || strings.Contains(tool.Name, "remove") {
 			t.Fatalf("삭제 도구가 노출됨: %s", tool.Name)
 		}

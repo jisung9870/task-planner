@@ -53,7 +53,7 @@ func (s *Service) Add(in AddInput) (*domain.Task, error) {
 	t := &domain.Task{
 		ID:        domain.NewID(today, seq),
 		Title:     title,
-		Status:    status,
+		Status:    domain.StatusTodo,
 		Project:   strings.TrimSpace(in.Project),
 		Executor:  in.Executor,
 		Priority:  in.Priority,
@@ -71,6 +71,11 @@ func (s *Service) Add(in AddInput) (*domain.Task, error) {
 		t.Body = "## Note\n" + note + "\n"
 	}
 	t.AppendLog(s.now(), "created")
+	if status != domain.StatusTodo {
+		if err := t.Transition(status, s.now(), &domain.TransitionOpts{SessionCap: s.Cfg.SessionCap}); err != nil {
+			return nil, err
+		}
+	}
 	if err := s.save(t); err != nil {
 		return nil, err
 	}
@@ -223,12 +228,12 @@ func (s *Service) Block(ref, reason string, by []string) (*Result, error) {
 type EditInput struct {
 	Title     *string
 	Project   *string
+	Executor  *domain.Executor
 	Priority  *domain.Priority
 	Scheduled *domain.Date
 	Due       *domain.Date
 	Estimate  *domain.Duration
 	Tags      *[]string
-	Executor  *domain.Executor
 	Links     *[]string
 	Recur     *string
 }
@@ -256,11 +261,6 @@ func (s *Service) Edit(ref string, in EditInput) (*Result, error) {
 		changes = append(changes, "project="+*in.Project)
 		t.Project = *in.Project
 	}
-	if in.Priority != nil && *in.Priority != t.Priority {
-		changes = append(changes, "priority="+string(*in.Priority))
-		t.Priority = *in.Priority
-	}
-	if in.Scheduled != nil && !in.Scheduled.Equal(t.Scheduled) {
 	if in.Executor != nil && *in.Executor != t.Executor.Effective() {
 		if _, err := domain.ParseExecutor(string(*in.Executor)); err != nil {
 			return nil, err
@@ -268,6 +268,11 @@ func (s *Service) Edit(ref string, in EditInput) (*Result, error) {
 		changes = append(changes, "executor="+string(*in.Executor))
 		t.Executor = *in.Executor
 	}
+	if in.Priority != nil && *in.Priority != t.Priority {
+		changes = append(changes, "priority="+string(*in.Priority))
+		t.Priority = *in.Priority
+	}
+	if in.Scheduled != nil && !in.Scheduled.Equal(t.Scheduled) {
 		changes = append(changes, "scheduled="+in.Scheduled.String())
 		t.Scheduled = *in.Scheduled
 	}
