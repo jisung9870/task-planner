@@ -14,13 +14,14 @@ import (
 type addArgs struct {
 	Title     string   `json:"title" jsonschema:"태스크 제목 (필수). 40자 안쪽 명사구 한 줄, 한 제목에 한 가지 일. 상세는 note 로 (규약: tp://conventions)"`
 	Project   string   `json:"project,omitempty" jsonschema:"프로젝트 slug"`
+	Executor  string   `json:"executor,omitempty" jsonschema:"실행 주체 human|agent. 에이전트 수행 작업은 agent 필수"`
 	Priority  string   `json:"priority,omitempty" jsonschema:"우선순위 P0~P3"`
 	Scheduled string   `json:"scheduled,omitempty" jsonschema:"착수 예정일: YYYY-MM-DD | today | tomorrow"`
 	Due       string   `json:"due,omitempty" jsonschema:"마감일: YYYY-MM-DD | today | tomorrow"`
 	Estimate  string   `json:"estimate,omitempty" jsonschema:"예상 소요 (30m, 2h, 1h30m)"`
 	Tags      []string `json:"tags,omitempty"`
 	Links     []string `json:"links,omitempty" jsonschema:"외부 링크 (jira:ABC-123 등)"`
-	Note      string   `json:"note,omitempty" jsonschema:"메모 본문. 사람용 vault에서는 사실 2~4줄이며 단계 계획은 거부됨. agent vault에서는 목표·단계·완료 기준을 기록 (규약: tp://conventions)"`
+	Note      string   `json:"note,omitempty" jsonschema:"메모 본문. human 작업은 사실 2~4줄, agent 작업은 목표·단계·완료 기준 (규약: tp://conventions)"`
 	Recur     string   `json:"recur,omitempty" jsonschema:"반복 규칙: daily|weekly|monthly|weekdays|every N days|every monday|monthly on 15"`
 	Start     bool     `json:"start,omitempty" jsonschema:"true 면 추가와 동시에 진행중으로 (타이머 시작)"`
 }
@@ -56,6 +57,7 @@ type editArgs struct {
 	Ref       string    `json:"ref" jsonschema:"태스크 지정"`
 	Title     *string   `json:"title,omitempty"`
 	Project   *string   `json:"project,omitempty" jsonschema:"빈 문자열이면 프로젝트 해제"`
+	Executor  *string   `json:"executor,omitempty" jsonschema:"실행 주체 human|agent"`
 	Priority  *string   `json:"priority,omitempty" jsonschema:"P0~P3, 빈 문자열이면 해제"`
 	Scheduled *string   `json:"scheduled,omitempty" jsonschema:"YYYY-MM-DD | today | tomorrow | none(해제)"`
 	Due       *string   `json:"due,omitempty" jsonschema:"YYYY-MM-DD | today | tomorrow | none(해제)"`
@@ -67,7 +69,7 @@ type editArgs struct {
 
 type noteArgs struct {
 	Ref  string `json:"ref" jsonschema:"태스크 지정"`
-	Text string `json:"text" jsonschema:"시각이 붙어 누적되는 메모. 사람용 vault는 확인한 사실, agent vault는 실행 단계·결과·계획 변경·검증 근거를 기록"`
+	Text string `json:"text" jsonschema:"시각이 붙어 누적되는 메모. human 작업은 확인한 사실, agent 작업은 실행 단계·결과·계획 변경·검증 근거를 기록"`
 }
 
 type projectCreateArgs struct {
@@ -112,11 +114,15 @@ type rolloverOut struct {
 func (s *Server) registerWriteTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "task_add",
-		Description: "태스크 추가. 파일을 직접 만들지 말고 이 도구를 쓸 것. agent vault의 note에는 작업 목표·계획·완료 기준을 기록한다. 사람용 vault의 note는 사실 2~4줄. 작성 규약: tp://conventions.",
+		Description: "공유 vault에 태스크 추가. 에이전트 수행 작업은 executor=agent로 등록하고 note에 목표·계획·완료 기준을 기록한다. 작성 규약: tp://conventions.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in addArgs) (*mcp.CallToolResult, mutateOut, error) {
 		defer s.begin()()
+		executor, err := domain.ParseExecutor(in.Executor)
+		if err != nil {
+			return nil, mutateOut{}, err
+		}
 		issues := style.CheckTitle(in.Title)
-		if !s.agentVault() {
+		if executor == domain.ExecutorHuman {
 			issues = append(issues, style.CheckNote(in.Note)...)
 		}
 		if err := style.Err(issues); err != nil {
@@ -124,10 +130,10 @@ func (s *Server) registerWriteTools() {
 		}
 		today := s.svc.Today()
 		ai := service.AddInput{
-			Title: in.Title, Project: in.Project,
+			Title: in.Title, Project: in.Project, Executor: executor,
 			Tags: in.Tags, Links: in.Links, Note: in.Note, Recur: in.Recur,
 		}
-		var err error
+		// The executor controls note conventions independently of vault path.
 		if ai.Priority, err = domain.ParsePriority(in.Priority); err != nil {
 			return nil, mutateOut{}, err
 		}
@@ -211,6 +217,13 @@ func (s *Server) registerWriteTools() {
 		}
 		today := s.svc.Today()
 		ei := service.EditInput{Title: in.Title, Project: in.Project, Tags: in.Tags, Recur: in.Recur}
+		if in.Executor != nil {
+			e, err := domain.ParseExecutor(*in.Executor)
+			if err != nil {
+				return nil, mutateOut{}, err
+			}
+			ei.Executor = &e
+		}
 		if in.Priority != nil {
 			p, err := domain.ParsePriority(*in.Priority)
 			if err != nil {
@@ -268,11 +281,15 @@ func (s *Server) registerWriteTools() {
 
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "task_note",
-		Description: "태스크 본문에 시각이 붙은 메모 한 줄 추가. agent vault에서는 실제 수행 단계·검증 결과·계획 변경을 그때 기록한다.",
+		Description: "태스크 본문에 시각이 붙은 메모 한 줄 추가. agent 작업에는 실제 수행 단계·검증 결과·계획 변경을 기록한다.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in noteArgs) (*mcp.CallToolResult, mutateOut, error) {
 		defer s.begin()()
+		task, err := s.svc.Load(in.Ref)
+		if err != nil {
+			return nil, mutateOut{}, err
+		}
 		var issues []style.Issue
-		if !s.agentVault() {
+		if task.Executor.Effective() == domain.ExecutorHuman {
 			issues = style.CheckNoteLine(in.Text)
 		}
 		if err := style.Err(issues); err != nil {

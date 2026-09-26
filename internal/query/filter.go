@@ -183,6 +183,12 @@ func parseTerm(tok string, today domain.Date) (term, error) {
 			}
 			return strings.EqualFold(task.Project, want)
 		}
+	case "executor", "exec":
+		want, err := domain.ParseExecutor(value)
+		if err != nil {
+			return t, err
+		}
+		t.match = func(task *domain.Task, _ domain.Date, _ int) bool { return task.Executor.Effective() == want }
 	case "tag", "t":
 		want := value
 		t.match = func(task *domain.Task, _ domain.Date, _ int) bool { return task.HasTag(want) }

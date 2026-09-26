@@ -334,6 +334,7 @@ func (m *Model) tabs() string {
 	}
 	line := strings.Join(parts, "  ")
 	var suffix []string
+	suffix = append(suffix, "작업:"+m.scope+" (F 전환)")
 	if m.search != "" {
 		suffix = append(suffix, "필터:"+m.search)
 	}

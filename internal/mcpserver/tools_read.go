@@ -16,7 +16,7 @@ type taskListOut struct {
 
 type vaultInfoOut struct {
 	Path string `json:"path"`
-	Mode string `json:"mode" jsonschema:"human 또는 agent"`
+	Mode string `json:"mode" jsonschema:"shared (한 vault에서 executor 필드로 구분)"`
 }
 
 type weekArgs struct {
@@ -24,7 +24,7 @@ type weekArgs struct {
 }
 
 type queryArgs struct {
-	Query string `json:"query" jsonschema:"필터 질의. 예: status:doing project:infra due<7d is:overdue -status:done 자유어. 필드: status project tag priority due scheduled rollover is id body"`
+	Query string `json:"query" jsonschema:"필터 질의. 예: executor:agent status:doing project:infra. 필드: executor status project tag priority due scheduled rollover is id body"`
 }
 
 type refArgs struct {
@@ -116,13 +116,9 @@ type reportOut struct {
 func (s *Server) registerReadTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "vault_info",
-		Description: "연결된 vault 경로와 용도(human/agent)를 확인. 작업 등록 전에 호출해 사람용 vault에 에이전트 작업이 섞이지 않게 한다.",
+		Description: "연결된 공유 vault 경로를 확인. 에이전트 수행 작업은 task_add executor=agent로 기록한다.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, _ any) (*mcp.CallToolResult, vaultInfoOut, error) {
-		mode := "human"
-		if s.agentVault() {
-			mode = "agent"
-		}
-		return nil, vaultInfoOut{Path: s.svc.Cfg.Vault, Mode: mode}, nil
+		return nil, vaultInfoOut{Path: s.svc.Cfg.Vault, Mode: "shared"}, nil
 	})
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "task_today",

@@ -52,6 +52,7 @@ type Task struct {
 	Title    string   `yaml:"title"`
 	Status   Status   `yaml:"status"`
 	Project  string   `yaml:"project,omitempty"`
+	Executor Executor `yaml:"executor,omitempty"`
 	Priority Priority `yaml:"priority,omitempty"`
 
 	Created Date `yaml:"created"`
@@ -113,6 +114,9 @@ func (t *Task) Validate() error {
 	}
 	if !t.Status.Valid() {
 		return fmt.Errorf("%s: 알 수 없는 상태 %q", t.ID, t.Status)
+	}
+	if _, err := ParseExecutor(string(t.Executor)); err != nil {
+		return fmt.Errorf("%s: %w", t.ID, err)
 	}
 	if t.Status == StatusBlocked && t.BlockedReason == "" && len(t.BlockedBy) == 0 {
 		return fmt.Errorf("%s: %w", t.ID, ErrBlockedNeedsReason)

@@ -58,9 +58,7 @@ func (m *Model) reloadTimeline(today domain.Date) {
 	end := start.AddDays(days - 1)
 
 	ts := m.svc.All()
-	if m.filter != nil && !m.filter.Empty() {
-		ts = m.svc.ApplyFilter(m.filter, ts)
-	}
+	ts = m.filterTasks(ts)
 	m.tlUndated = 0
 	rows := make([]row, 0, len(ts))
 	for _, t := range ts {

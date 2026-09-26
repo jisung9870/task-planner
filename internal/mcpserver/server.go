@@ -11,7 +11,6 @@ package mcpserver
 
 import (
 	"context"
-	"path/filepath"
 	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -71,10 +70,4 @@ func (s *Server) finish() error {
 		return err
 	}
 	return nil
-}
-
-// agentVault is the single shared agent workspace nested under the human vault.
-// It has different note conventions: plans belong in its task files.
-func (s *Server) agentVault() bool {
-	return filepath.Base(filepath.Clean(s.svc.Cfg.Vault)) == "agent"
 }

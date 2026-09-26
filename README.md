@@ -37,26 +37,31 @@ vault 경로는 `--vault`, `$TP_VAULT`, 기본값 `~/tasks` 순으로 결정된�
 
 ### 에이전트 작업 기록
 
-사람의 작업은 기본 vault에, 에이전트가 수행하는 작업은 기본 vault 아래 하나의
-`agent/` vault에 둔다. 프로젝트별로 agent vault를 나누지 않는다. `$TP_VAULT`를
-설정했다면 그 경로를 기본 vault로 보고 아래에 `agent/`를 붙인다.
+사람과 에이전트 작업은 같은 vault에 둔다. `executor` 필드로 `human`(기본값)과
+`agent`를 구분하므로 프로젝트 메타데이터와 진행률을 함께 사용한다.
 
 ```bash
-tp --vault "${TP_VAULT:-$HOME/tasks}/agent" init
-tp --vault "${TP_VAULT:-$HOME/tasks}/agent"       # 에이전트 작업을 TUI로 확인
-tp --vault "${TP_VAULT:-$HOME/tasks}/agent" list  # 목록 확인
-tp --vault "${TP_VAULT:-$HOME/tasks}/agent" mcp   # 에이전트용 MCP 서버
+tp add '작업 제목' --executor agent --start --note '목표: ...'
+tp list 'executor:agent'
+tp mcp   # 같은 vault에 연결
 ```
 
 에이전트는 착수 전에 태스크의 `note`에 목표·계획·완료 기준을 쓰고, 진행 중에는
 `task_note`/`tp note`로 실제 수행 내용과 검증 결과를 남긴다. 마친 뒤 `done`,
 중단했다면 `blocked` 또는 `cancelled`로 기록한다. MCP를 연결했다면 먼저
-`vault_info`의 `mode: agent`와 `path`를 확인한다. 사람용 vault의 MCP 작성
-규약과 달리 agent vault에는 단계 계획을 쓸 수 있다.
+`vault_info`의 `mode: shared`와 기본 vault 경로를 확인한다. `executor: agent`
+작업에는 단계 계획을 쓸 수 있고, 사람 작업에는 짧은 사실 메모 규약이 적용된다.
+TUI에서는 `F`로 사람 → agent → 전체 작업을 전환한다.
+
+기존 `<vault>/agent` 데이터를 합칠 때는
+`python3 scripts/migrate_agent_vault.py --vault "$HOME/tasks"`를 사용한다. 스크립트는 vault 전체를 바깥의
+`tasks-migration-backups/<시각>/`에 복사하고, 중복 ID를 재배정한 대응표
+`id-map.json`을 남긴 뒤 합쳐진 작업 수를 확인한다. 프로젝트 메타데이터나 저장된
+뷰가 서로 다르면 중단한다. 확인이 끝나면 기존 `agent/` 디렉터리를 제거한다.
 
 Codex 스킬 원본은 [`skills/task-planner/SKILL.md`](skills/task-planner/SKILL.md)에
 있다. 전역 스킬 경로에 설치하고, 전역 `AGENTS.md`에서 여러 단계 작업과 산출물
-변경 시 이 스킬을 따르도록 지정하면 프로젝트를 옮겨도 같은 agent vault를 쓴다.
+변경 시 이 스킬을 따르도록 지정하면 프로젝트를 옮겨도 같은 vault를 쓴다.
 
 ## 사용
 
@@ -87,7 +92,7 @@ tp version                           # 버전·커밋·빌드 시각
 
 TUI 탭: `1` Today · `2` Week(요일 그리드) · `3` Board(칸반) · `4` Timeline(간트) ·
 `5` Projects · `6` All
-TUI 키: `a` 추가 · `A` 폼 캡처(제목·설명·기간·태그) · `N` 메모 · `space` 상태 순환 · `s/d/b/x` 진행/완료/보류/취소 ·
+TUI 키: `a` 추가 · `A` 폼 캡처(제목·설명·기간·태그) · `F` 사람/agent/전체 전환 · `N` 메모 · `space` 상태 순환 · `s/d/b/x` 진행/완료/보류/취소 ·
 `D` 진행 기간 · `p` 프로젝트 지정 · `m` 선택 · `v` 저장된 뷰 · `f` 목록 묶음 전환 · `!` 다음 할 일 ·
 `ctrl+z` 되돌리기 · `S` 반복 건너뛰기 · `X` 삭제 · `enter` 상세 패널 ·
 `J/K` 상세 스크롤 · `e` 편집기 · `/` 필터 · `h/l` 열 이동 · `H/L` 카드 이동 ·
@@ -195,7 +200,7 @@ CLI(`tp list`)와 TUI(`/`)가 같은 문법을 쓴다.
 
 | | |
 |---|---|
-| 필드 | `status` `project` `tag` `priority` `due` `scheduled` `rollover` `is` `id` `body` |
+| 필드 | `executor` `status` `project` `tag` `priority` `due` `scheduled` `rollover` `is` `id` `body` |
 | 연산 | `:` 같음, `<` `<=` `>` `>=` 비교(날짜·숫자) |
 | 날짜 | `2026-09-15` `today` `tomorrow` `+7d` `2w` `1m` `week` `none` `any` |
 | `is:` | `open` `closed` `overdue` `duesoon` `blocked` `carried` `unscheduled` `recurring` |
@@ -294,8 +299,8 @@ CLI 에서 한다. git auto_commit 이 켜져 있으면 쓰기 도구 호출마�
   한 줄이다.
 
 전문은 MCP 리소스 `tp://conventions` 에 있다(`internal/style/conventions.md`).
-이 메모 구조 제한은 사람용 vault에 적용된다. 에이전트용 `agent/` vault에서는
-계획을 note에 기록할 수 있다. `tp add` 로 사람이 치는 길은 막지 않는다.
+이 메모 구조 제한은 `executor: human` 작업에 적용된다. `executor: agent`
+작업에서는 계획을 note에 기록할 수 있다. `tp add` 로 사람이 치는 길은 막지 않는다.
 
 ## git 동기화
 

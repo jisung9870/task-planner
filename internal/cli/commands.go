@@ -38,9 +38,9 @@ func newInitCmd() *cobra.Command {
 
 func newAddCmd() *cobra.Command {
 	var (
-		project, priority, sched, due, estimate, note, recur string
-		tags, links                                          []string
-		start                                                bool
+		project, executor, priority, sched, due, estimate, note, recur string
+		tags, links                                                    []string
+		start                                                          bool
 	)
 	cmd := &cobra.Command{
 		Use:   "add <제목...>",
@@ -57,6 +57,9 @@ func newAddCmd() *cobra.Command {
 					Recur:   recur,
 				}
 				var err error
+				if in.Executor, err = domain.ParseExecutor(executor); err != nil {
+					return err
+				}
 				if in.Priority, err = domain.ParsePriority(priority); err != nil {
 					return err
 				}
@@ -87,6 +90,7 @@ func newAddCmd() *cobra.Command {
 	}
 	f := cmd.Flags()
 	f.StringVarP(&project, "project", "p", "", "프로젝트 slug")
+	f.StringVar(&executor, "executor", "human", "실행 주체 human|agent")
 	f.StringVar(&priority, "priority", "", "우선순위 P0~P3")
 	f.StringVarP(&sched, "scheduled", "s", "", "착수 예정일 (YYYY-MM-DD | today | tomorrow | +3d | mon)")
 	f.StringVarP(&due, "due", "d", "", "마감일 (동일 형식)")

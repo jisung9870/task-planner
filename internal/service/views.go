@@ -73,8 +73,12 @@ type DayCounts struct {
 
 // ClosedOn counts the work that reached a terminal state on a given day.
 func (s *Service) ClosedOn(d domain.Date) DayCounts {
+	return ClosedOnTasks(d, s.All())
+}
+
+func ClosedOnTasks(d domain.Date, tasks []*domain.Task) DayCounts {
 	var c DayCounts
-	for _, t := range s.All() {
+	for _, t := range tasks {
 		if !t.Completed.Equal(d) {
 			continue
 		}

@@ -22,8 +22,8 @@ func clearValue(v string) string {
 
 func newSetCmd() *cobra.Command {
 	var (
-		title, project, priority, sched, due, span, estimate, recur string
-		tags, links                                                 []string
+		title, project, executor, priority, sched, due, span, estimate, recur string
+		tags, links                                                           []string
 	)
 	cmd := &cobra.Command{
 		Use:   "set <태스크> [플래그]",
@@ -51,6 +51,13 @@ func newSetCmd() *cobra.Command {
 				if f.Changed("project") {
 					v := clearValue(project)
 					in.Project = &v
+				}
+				if f.Changed("executor") {
+					e, err := domain.ParseExecutor(executor)
+					if err != nil {
+						return err
+					}
+					in.Executor = &e
 				}
 				if f.Changed("priority") {
 					p, err := domain.ParsePriority(clearValue(priority))
@@ -126,6 +133,7 @@ func newSetCmd() *cobra.Command {
 	f := cmd.Flags()
 	f.StringVar(&title, "title", "", "제목")
 	f.StringVarP(&project, "project", "p", "", "프로젝트 slug (none 이면 해제)")
+	f.StringVar(&executor, "executor", "", "실행 주체 human|agent")
 	f.StringVar(&priority, "priority", "", "우선순위 P0~P3 (none 이면 해제)")
 	f.StringVarP(&sched, "scheduled", "s", "", "착수 예정일 (YYYY-MM-DD | today | +3d | mon | none)")
 	f.StringVarP(&due, "due", "d", "", "마감일 (동일 형식)")

@@ -30,11 +30,15 @@ func (l DayLoad) Empty() bool { return l.Tasks == 0 }
 
 // DayLoad computes the commitment for one day.
 func (s *Service) DayLoad(d domain.Date) DayLoad {
+	return s.DayLoadFor(d, s.All())
+}
+
+func (s *Service) DayLoadFor(d domain.Date, tasks []*domain.Task) DayLoad {
 	load := DayLoad{Date: d, Limit: s.Cfg.DailyCapacity}
 	if d.IsZero() {
 		return load
 	}
-	for _, t := range s.All() {
+	for _, t := range tasks {
 		if !t.IsOpen() || !t.InSpan(d) {
 			continue
 		}
@@ -50,10 +54,14 @@ func (s *Service) DayLoad(d domain.Date) DayLoad {
 
 // WeekLoad computes the commitment for each day of ref's week.
 func (s *Service) WeekLoad(ref domain.Date) []DayLoad {
+	return s.WeekLoadFor(ref, s.All())
+}
+
+func (s *Service) WeekLoadFor(ref domain.Date, tasks []*domain.Task) []DayLoad {
 	start := ref.WeekStart()
 	out := make([]DayLoad, 7)
 	for i := range out {
-		out[i] = s.DayLoad(start.AddDays(i))
+		out[i] = s.DayLoadFor(start.AddDays(i), tasks)
 	}
 	return out
 }

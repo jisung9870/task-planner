@@ -43,9 +43,14 @@ func (r ProjectRow) Active() bool { return r.Status == "" || r.Status == "active
 // ProjectRows is the Projects view: every project that has tasks, plus every
 // project that has a file, in one list.
 func (s *Service) ProjectRows() ([]ProjectRow, error) {
+	return s.ProjectRowsFor(s.All())
+}
+
+// ProjectRowsFor applies the same project rollup to a selected task scope.
+func (s *Service) ProjectRowsFor(tasks []*domain.Task) ([]ProjectRow, error) {
 	rows := map[string]*ProjectRow{}
 	var order []string
-	for _, c := range s.ProjectCounts() {
+	for _, c := range query.ProjectCounts(tasks, s.Today()) {
 		rows[c.Slug] = &ProjectRow{ProjectCount: c}
 		order = append(order, c.Slug)
 	}

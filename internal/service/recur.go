@@ -34,6 +34,7 @@ func (s *Service) spawnNextOccurrence(finished *domain.Task) (*domain.Task, erro
 	in := AddInput{
 		Title:    finished.Title,
 		Project:  finished.Project,
+		Executor: finished.Executor,
 		Priority: finished.Priority,
 		Estimate: finished.Estimate,
 		Tags:     finished.Tags,

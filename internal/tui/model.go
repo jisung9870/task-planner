@@ -147,6 +147,7 @@ type Model struct {
 	rows     []row
 	cursor   int
 	grouping listGrouping
+	scope    string // human, agent, all
 	// detail: bottom pane toggle for narrow terminals.
 	// wideDetail: right pane toggle for wide terminals - on by default, because
 	// the pane is the point of the split layout.
@@ -248,7 +249,7 @@ func New(svc *service.Service) *Model {
 	in.Prompt = ""
 	in.PromptStyle = styPrompt
 	in.CharLimit = 400
-	m := &Model{svc: svc, input: in, wideDetail: true, grouping: groupStatus,
+	m := &Model{svc: svc, input: in, wideDetail: true, grouping: groupStatus, scope: "human",
 		marked: map[string]bool{}, history: map[mode][]string{}}
 	// The tab and panel layout are the two things a user notices resetting on
 	// every launch; both are disposable state living next to the index.
@@ -257,6 +258,9 @@ func New(svc *service.Service) *Model {
 		m.tab = tab(ui.Tab)
 	}
 	m.wideDetail = ui.WideDetail
+	if ui.ExecutorScope == "human" || ui.ExecutorScope == "agent" || ui.ExecutorScope == "all" {
+		m.scope = ui.ExecutorScope
+	}
 	switch listGrouping(ui.ListGrouping) {
 	case groupProject, groupProjectStatus:
 		m.grouping = listGrouping(ui.ListGrouping)
@@ -289,8 +293,8 @@ func (m *Model) SetWatcher(w *watch.Watcher) { m.watcher = w }
 // would otherwise recompute. Cheap: it reads the in-memory index.
 func (m *Model) reload() {
 	today := m.svc.Today()
-	m.summary = m.svc.Summarize()
-	m.todayLoad = m.svc.DayLoad(today)
+	m.summary = m.svc.SummarizeTasks(m.filterTasks(m.svc.All()))
+	m.todayLoad = m.svc.DayLoadFor(today, m.filterTasks(m.svc.All()))
 	m.blockingCount = m.svc.BlockingCounts()
 	m.detail_ = detailCache{}
 	m.detailOffset = 0
@@ -319,9 +323,7 @@ func (m *Model) reload() {
 		ts = m.svc.All()
 		domain.SortDefault(ts, today)
 	}
-	if m.filter != nil && !m.filter.Empty() {
-		ts = m.svc.ApplyFilter(m.filter, ts)
-	}
+	ts = m.filterTasks(ts)
 	if m.tab == tabAll {
 		ts = limitRecentDone(ts, recentDoneLimit)
 	}
@@ -336,6 +338,23 @@ func (m *Model) reload() {
 	m.clampCursor()
 }
 
+func (m *Model) filterTasks(ts []*domain.Task) []*domain.Task {
+	if m.scope != "all" {
+		out := make([]*domain.Task, 0, len(ts))
+		for _, t := range ts {
+			if string(t.Executor.Effective()) == m.scope {
+				out = append(out, t)
+			}
+		}
+		ts = out
+	}
+	if m.filter != nil && !m.filter.Empty() {
+		ts = m.svc.ApplyFilter(m.filter, ts)
+	}
+	return ts
+}
+
+
 // groupRows flattens a task list into header + task rows.
 func groupRows(ts []*domain.Task) []row {
 	groups := domain.GroupByStatus(ts)
@@ -345,6 +364,7 @@ func groupRows(ts []*domain.Task) []row {
 		if len(g) == 0 {
 			continue
 		}
+
 		rows = append(rows, row{header: fmt.Sprintf("%s (%d)", st.Label(), len(g))})
 		for _, t := range g {
 			rows = append(rows, row{task: t})
@@ -466,10 +486,8 @@ func limitRecentDone(ts []*domain.Task, limit int) []*domain.Task {
 // subset cannot do.
 func (m *Model) reloadBoard(today domain.Date) {
 	ts := m.svc.OpenList()
-	if m.filter != nil && !m.filter.Empty() {
-		ts = m.svc.ApplyFilter(m.filter, ts)
-	}
-	m.boardClosed = m.svc.ClosedOn(today)
+	ts = m.filterTasks(ts)
+	m.boardClosed = service.ClosedOnTasks(today, m.filterTasks(m.svc.All()))
 	m.cols = make([][]*domain.Task, len(boardColumns))
 	for _, t := range ts {
 		for i, st := range boardColumns {
@@ -490,12 +508,10 @@ const weekLaneUnassigned = 7
 // query.WeekDays - a status-grouped list cannot show how the week is laid out.
 func (m *Model) reloadWeek(ref domain.Date) {
 	ts := m.svc.WeekList(ref)
-	if m.filter != nil && !m.filter.Empty() {
-		ts = m.svc.ApplyFilter(m.filter, ts)
-	}
+	ts = m.filterTasks(ts)
 	buckets, days := query.WeekDays(ts, ref)
 	m.weekDays = days
-	m.weekLoads = m.svc.WeekLoad(ref)
+	m.weekLoads = m.svc.WeekLoadFor(ref, m.filterTasks(m.svc.All()))
 	m.cols = make([][]*domain.Task, 8)
 	for i, d := range days {
 		m.cols[i] = buckets[d]
@@ -672,7 +688,7 @@ func (m *Model) moveColumn(delta int) {
 // and a row that only appears once a task references it would look like the
 // creation failed.
 func (m *Model) projectRows() []row {
-	list, err := m.svc.ProjectRows()
+	list, err := m.svc.ProjectRowsFor(m.filterTasks(m.svc.All()))
 	if err != nil {
 		m.setErr(err)
 	}

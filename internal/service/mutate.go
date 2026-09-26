@@ -14,6 +14,7 @@ import (
 type AddInput struct {
 	Title     string
 	Project   string
+	Executor  domain.Executor
 	Priority  domain.Priority
 	Status    domain.Status
 	Scheduled domain.Date
@@ -37,6 +38,9 @@ func (s *Service) Add(in AddInput) (*domain.Task, error) {
 			return nil, err
 		}
 	}
+	if _, err := domain.ParseExecutor(string(in.Executor)); err != nil {
+		return nil, err
+	}
 	today := s.Today()
 	seq, err := s.nextSeq()
 	if err != nil {
@@ -51,6 +55,7 @@ func (s *Service) Add(in AddInput) (*domain.Task, error) {
 		Title:     title,
 		Status:    status,
 		Project:   strings.TrimSpace(in.Project),
+		Executor:  in.Executor,
 		Priority:  in.Priority,
 		Created:   today,
 		Updated:   today,
@@ -223,6 +228,7 @@ type EditInput struct {
 	Due       *domain.Date
 	Estimate  *domain.Duration
 	Tags      *[]string
+	Executor  *domain.Executor
 	Links     *[]string
 	Recur     *string
 }
@@ -230,7 +236,7 @@ type EditInput struct {
 // Any reports whether the input would change anything. The CLI needs it to
 // tell "지정한 필드가 없다" from "지정했는데 값이 같다".
 func (in EditInput) Any() bool {
-	return in.Title != nil || in.Project != nil || in.Priority != nil ||
+	return in.Title != nil || in.Project != nil || in.Executor != nil || in.Priority != nil ||
 		in.Scheduled != nil || in.Due != nil || in.Estimate != nil ||
 		in.Tags != nil || in.Links != nil || in.Recur != nil
 }
@@ -255,6 +261,13 @@ func (s *Service) Edit(ref string, in EditInput) (*Result, error) {
 		t.Priority = *in.Priority
 	}
 	if in.Scheduled != nil && !in.Scheduled.Equal(t.Scheduled) {
+	if in.Executor != nil && *in.Executor != t.Executor.Effective() {
+		if _, err := domain.ParseExecutor(string(*in.Executor)); err != nil {
+			return nil, err
+		}
+		changes = append(changes, "executor="+string(*in.Executor))
+		t.Executor = *in.Executor
+	}
 		changes = append(changes, "scheduled="+in.Scheduled.String())
 		t.Scheduled = *in.Scheduled
 	}

@@ -17,10 +17,14 @@ type Summary struct {
 
 // Summarize computes the briefing from the index.
 func (s *Service) Summarize() Summary {
+	return s.SummarizeTasks(s.All())
+}
+
+func (s *Service) SummarizeTasks(tasks []*domain.Task) Summary {
 	today := s.Today()
 	var sum Summary
 	sum.WIPLimit = s.Cfg.WIPLimit
-	for _, t := range s.All() {
+	for _, t := range tasks {
 		if !t.IsOpen() {
 			continue
 		}

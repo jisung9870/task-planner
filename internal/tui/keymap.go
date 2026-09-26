@@ -11,7 +11,7 @@ import (
 // segment is pinned by helpLine: it is the way to everything else.
 var helpSegments = []string{
 	"a 추가", "A 폼", "N 메모", "space 상태", "d 완료", "D 기간",
-	"m 선택", "v 뷰", "f 묶음", "! 다음할일", "/ 검색", "ctrl+z 되돌리기", "1-6 탭", "? 도움말",
+	"m 선택", "v 뷰", "f 묶음", "F 사람/agent/전체", "! 다음할일", "/ 검색", "ctrl+z 되돌리기", "1-6 탭", "? 도움말",
 }
 
 // helpLine renders the footer inside a width budget. Letting the terminal clip
@@ -49,6 +49,7 @@ const helpFull = `키
               선택 전체에 적용되고, 그 전체가 되돌리기 한 단계가 됩니다
   뷰          v  저장된 질의 목록 (1-9 또는 enter 로 적용, d 로 삭제)
               v → s  현재 필터를 이름 붙여 저장 (config.yaml 의 views)
+              F  사람 → agent → 전체 작업 보기 전환 (다음 실행에도 유지)
   탭          1 Today  2 Week  3 Board  4 Timeline  5 Projects  6 All
               tab / shift+tab  다음·이전 탭으로 순환
   목록        f  Today·All 목록의 상태별 → 프로젝트별 → 프로젝트·상태별 전환
@@ -98,7 +99,7 @@ const helpFull = `키
   편집        e  (외부 편집기 — 저장하고 나오면 자동 반영)
   필터        /  질의식 또는 자유 단어 — 입력하는 대로 걸러집니다
               ↑/↓ 로 이전에 쓴 질의를 불러옵니다
-              status:doing  project:infra  tag:ops  priority:P1
+              status:doing  project:infra  executor:agent  tag:ops  priority:P1
               due<7d  scheduled:today  rollover>2  id:0012
               is:open|closed|overdue|duesoon|blocked|carried|unscheduled|recurring
               body:타임아웃   메모·로그 본문 검색 (파일을 읽으므로 조금 느림)

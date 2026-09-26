@@ -17,7 +17,8 @@ type UIState struct {
 	// WideDetail remembers whether the side panel was folded away.
 	WideDetail bool `json:"wide_detail"`
 	// ListGrouping selects how Today and All task lists are grouped.
-	ListGrouping string `json:"list_grouping,omitempty"`
+	ListGrouping  string `json:"list_grouping,omitempty"`
+	ExecutorScope string `json:"executor_scope,omitempty"`
 }
 
 // LoadUIState reads the saved state, returning the zero value when there is

@@ -16,6 +16,7 @@ type taskJSON struct {
 	Status        string   `json:"status"`
 	StatusLabel   string   `json:"status_label"`
 	Project       string   `json:"project,omitempty"`
+	Executor      string   `json:"executor"`
 	Priority      string   `json:"priority,omitempty"`
 	Scheduled     string   `json:"scheduled,omitempty"`
 	Due           string   `json:"due,omitempty"`
@@ -38,6 +39,7 @@ func toTaskJSON(t *domain.Task, today domain.Date) taskJSON {
 		Status:        string(t.Status),
 		StatusLabel:   t.Status.Label(),
 		Project:       t.Project,
+		Executor:      string(t.Executor.Effective()),
 		Priority:      string(t.Priority),
 		Scheduled:     t.Scheduled.String(),
 		Due:           t.Due.String(),

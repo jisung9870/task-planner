@@ -439,6 +439,19 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.startForm()
 		return m, textinput.Blink
 	case "/":
+	case "F":
+		m.marked = map[string]bool{}
+		switch m.scope {
+		case "human":
+			m.scope = "agent"
+		case "agent":
+			m.scope = "all"
+		default:
+			m.scope = "human"
+		}
+		m.reload()
+		m.saveUIState()
+		m.setStatus("작업 보기: %s", m.scope)
 		m.startPrompt(modeSearch, "필터: ", m.search)
 		return m, textinput.Blink
 	case " ":
@@ -844,6 +857,9 @@ func (m *Model) captureInput(title string) (service.AddInput, string) {
 		in.Status = domain.StatusDoing
 	}
 	// Capturing while a Week day column is selected schedules for that day.
+	if m.scope == "agent" {
+		in.Executor = domain.ExecutorAgent
+	}
 	if m.tab == tabWeek && m.colCursor < len(m.weekDays) {
 		in.Scheduled = m.weekDays[m.colCursor]
 	}
@@ -1168,7 +1184,7 @@ func (m *Model) runningTask() *domain.Task {
 
 // saveUIState persists the layout choices worth restoring next launch.
 func (m *Model) saveUIState() {
-	_ = m.svc.SaveUIState(service.UIState{Tab: int(m.tab), WideDetail: m.wideDetail, ListGrouping: string(m.grouping)})
+	_ = m.svc.SaveUIState(service.UIState{Tab: int(m.tab), WideDetail: m.wideDetail, ListGrouping: string(m.grouping), ExecutorScope: m.scope})
 }
 
 // selectID keeps the cursor on the same task across a reload. On a grid tab a
@@ -1337,7 +1353,16 @@ func (m *Model) saveView(name string) {
 
 // jumpNext moves the cursor onto the task worth doing next and says why.
 func (m *Model) jumpNext() {
-	sugg := m.svc.NextUp(1)
+	sugg := m.svc.NextUp(0)
+	if m.scope != "all" {
+		filtered := sugg[:0]
+		for _, sg := range sugg {
+			if string(sg.Task.Executor.Effective()) == m.scope {
+				filtered = append(filtered, sg)
+			}
+		}
+		sugg = filtered
+	}
 	if len(sugg) == 0 {
 		m.setStatus("지금 바로 할 수 있는 일이 없습니다 (전부 완료이거나 보류 중)")
 		return
