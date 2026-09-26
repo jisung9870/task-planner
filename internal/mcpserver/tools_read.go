@@ -14,6 +14,11 @@ type taskListOut struct {
 	Tasks []taskJSON `json:"tasks"`
 }
 
+type vaultInfoOut struct {
+	Path string `json:"path"`
+	Mode string `json:"mode" jsonschema:"human 또는 agent"`
+}
+
 type weekArgs struct {
 	WeekOf string `json:"week_of,omitempty" jsonschema:"기준 날짜(YYYY-MM-DD). 그 날짜가 포함된 주를 조회. 생략 시 이번 주"`
 }
@@ -109,6 +114,16 @@ type reportOut struct {
 }
 
 func (s *Server) registerReadTools() {
+	mcp.AddTool(s.mcp, &mcp.Tool{
+		Name:        "vault_info",
+		Description: "연결된 vault 경로와 용도(human/agent)를 확인. 작업 등록 전에 호출해 사람용 vault에 에이전트 작업이 섞이지 않게 한다.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, _ any) (*mcp.CallToolResult, vaultInfoOut, error) {
+		mode := "human"
+		if s.agentVault() {
+			mode = "agent"
+		}
+		return nil, vaultInfoOut{Path: s.svc.Cfg.Vault, Mode: mode}, nil
+	})
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "task_today",
 		Description: "오늘 해야 할 일. 진행중이거나, 오늘까지 예정(scheduled)이거나, 오늘까지 마감(due)인 태스크와 오늘 완료분.",

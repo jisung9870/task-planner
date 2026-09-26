@@ -19,7 +19,7 @@ Claude Code 등록:
   claude mcp add task-planner -- tp mcp
   claude mcp add -s user task-planner -- tp mcp   # 모든 프로젝트에서
 
-제공 도구: task_today, task_week, task_query, task_get, summary, project_status,
+제공 도구: vault_info, task_today, task_week, task_query, task_get, summary, project_status,
 time_summary, report_week (읽기) / task_add, task_status, task_skip, task_edit,
 rollover (쓰기). 삭제는 제공하지 않는다 — 접을 일은 cancelled 로 처리하고,
 파일 삭제는 사람이 CLI 에서 한다.`,

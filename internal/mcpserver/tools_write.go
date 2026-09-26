@@ -20,7 +20,7 @@ type addArgs struct {
 	Estimate  string   `json:"estimate,omitempty" jsonschema:"예상 소요 (30m, 2h, 1h30m)"`
 	Tags      []string `json:"tags,omitempty"`
 	Links     []string `json:"links,omitempty" jsonschema:"외부 링크 (jira:ABC-123 등)"`
-	Note      string   `json:"note,omitempty" jsonschema:"메모 본문. 왜 이게 목록에 있는지 한 줄과 사실(날짜·수치·사람) 2~4줄. 헤딩·체크박스·단계 계획은 거부됨 (규약: tp://conventions)"`
+	Note      string   `json:"note,omitempty" jsonschema:"메모 본문. 사람용 vault에서는 사실 2~4줄이며 단계 계획은 거부됨. agent vault에서는 목표·단계·완료 기준을 기록 (규약: tp://conventions)"`
 	Recur     string   `json:"recur,omitempty" jsonschema:"반복 규칙: daily|weekly|monthly|weekdays|every N days|every monday|monthly on 15"`
 	Start     bool     `json:"start,omitempty" jsonschema:"true 면 추가와 동시에 진행중으로 (타이머 시작)"`
 }
@@ -67,7 +67,7 @@ type editArgs struct {
 
 type noteArgs struct {
 	Ref  string `json:"ref" jsonschema:"태스크 지정"`
-	Text string `json:"text" jsonschema:"그때 안 사실 한 문장 (통화 내용·확인한 수치). 본문 ## Note 에 시각과 함께 누적됨 — 시각이 붙으므로 '오늘' 같은 말은 불필요"`
+	Text string `json:"text" jsonschema:"시각이 붙어 누적되는 메모. 사람용 vault는 확인한 사실, agent vault는 실행 단계·결과·계획 변경·검증 근거를 기록"`
 }
 
 type projectCreateArgs struct {
@@ -112,10 +112,13 @@ type rolloverOut struct {
 func (s *Server) registerWriteTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "task_add",
-		Description: "태스크 추가. id 채번·생성 로그·WIP 경고가 자동 처리됨. 파일을 직접 만들지 말고 이 도구를 쓸 것. 제목은 명사구 한 줄, note 는 사실 2~4줄 — 티켓이 아니라 할 일 한 줄이다. 작성 규약은 리소스 tp://conventions.",
+		Description: "태스크 추가. 파일을 직접 만들지 말고 이 도구를 쓸 것. agent vault의 note에는 작업 목표·계획·완료 기준을 기록한다. 사람용 vault의 note는 사실 2~4줄. 작성 규약: tp://conventions.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in addArgs) (*mcp.CallToolResult, mutateOut, error) {
 		defer s.begin()()
-		issues := append(style.CheckTitle(in.Title), style.CheckNote(in.Note)...)
+		issues := style.CheckTitle(in.Title)
+		if !s.agentVault() {
+			issues = append(issues, style.CheckNote(in.Note)...)
+		}
 		if err := style.Err(issues); err != nil {
 			return nil, mutateOut{}, err
 		}
@@ -265,10 +268,13 @@ func (s *Server) registerWriteTools() {
 
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "task_note",
-		Description: "태스크 본문에 시각이 붙은 메모 한 줄 추가. 기존 메모를 덮어쓰지 않고 쌓는다 — 통화 내용·확인한 수치처럼 나중에 근거가 될 것을 그때 적는 용도.",
+		Description: "태스크 본문에 시각이 붙은 메모 한 줄 추가. agent vault에서는 실제 수행 단계·검증 결과·계획 변경을 그때 기록한다.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in noteArgs) (*mcp.CallToolResult, mutateOut, error) {
 		defer s.begin()()
-		issues := style.CheckNoteLine(in.Text)
+		var issues []style.Issue
+		if !s.agentVault() {
+			issues = style.CheckNoteLine(in.Text)
+		}
 		if err := style.Err(issues); err != nil {
 			return nil, mutateOut{}, err
 		}

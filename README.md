@@ -35,6 +35,29 @@ scripts/install.sh uninstall --purge                       # vault 까지 삭제
 
 vault 경로는 `--vault`, `$TP_VAULT`, 기본값 `~/tasks` 순으로 결정된다.
 
+### 에이전트 작업 기록
+
+사람의 작업은 기본 vault에, 에이전트가 수행하는 작업은 기본 vault 아래 하나의
+`agent/` vault에 둔다. 프로젝트별로 agent vault를 나누지 않는다. `$TP_VAULT`를
+설정했다면 그 경로를 기본 vault로 보고 아래에 `agent/`를 붙인다.
+
+```bash
+tp --vault "${TP_VAULT:-$HOME/tasks}/agent" init
+tp --vault "${TP_VAULT:-$HOME/tasks}/agent"       # 에이전트 작업을 TUI로 확인
+tp --vault "${TP_VAULT:-$HOME/tasks}/agent" list  # 목록 확인
+tp --vault "${TP_VAULT:-$HOME/tasks}/agent" mcp   # 에이전트용 MCP 서버
+```
+
+에이전트는 착수 전에 태스크의 `note`에 목표·계획·완료 기준을 쓰고, 진행 중에는
+`task_note`/`tp note`로 실제 수행 내용과 검증 결과를 남긴다. 마친 뒤 `done`,
+중단했다면 `blocked` 또는 `cancelled`로 기록한다. MCP를 연결했다면 먼저
+`vault_info`의 `mode: agent`와 `path`를 확인한다. 사람용 vault의 MCP 작성
+규약과 달리 agent vault에는 단계 계획을 쓸 수 있다.
+
+Codex 스킬 원본은 [`skills/task-planner/SKILL.md`](skills/task-planner/SKILL.md)에
+있다. 전역 스킬 경로에 설치하고, 전역 `AGENTS.md`에서 여러 단계 작업과 산출물
+변경 시 이 스킬을 따르도록 지정하면 프로젝트를 옮겨도 같은 agent vault를 쓴다.
+
 ## 사용
 
 ```bash
@@ -250,7 +273,7 @@ claude mcp add -s user task-planner -- tp mcp     # 모든 프로젝트
 
 | 종류 | 도구 |
 |---|---|
-| 읽기 | `task_today` `task_week` `task_query` `task_get` `task_next` `day_load` `summary` `project_status` `time_summary` `report_week` |
+| 읽기 | `vault_info` `task_today` `task_week` `task_query` `task_get` `task_next` `day_load` `summary` `project_status` `time_summary` `report_week` |
 | 쓰기 | `task_add` `task_status` `task_skip` `task_edit` `task_note` `project_create` `project_set` `rollover` `archive` |
 
 모든 도구가 TUI·CLI 와 같은 service 계층을 통과하므로 도메인 규칙(보류 사유
@@ -271,7 +294,8 @@ CLI 에서 한다. git auto_commit 이 켜져 있으면 쓰기 도구 호출마�
   한 줄이다.
 
 전문은 MCP 리소스 `tp://conventions` 에 있다(`internal/style/conventions.md`).
-검사는 agent 표면에만 걸린다 — `tp add` 로 사람이 치는 길은 막지 않는다.
+이 메모 구조 제한은 사람용 vault에 적용된다. 에이전트용 `agent/` vault에서는
+계획을 note에 기록할 수 있다. `tp add` 로 사람이 치는 길은 막지 않는다.
 
 ## git 동기화
 

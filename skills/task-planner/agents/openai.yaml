@@ -1,0 +1,3 @@
+interface:
+  display_name: "Task Planner"
+  short_description: "에이전트 작업 계획과 실제 진행을 tp에 기록"
