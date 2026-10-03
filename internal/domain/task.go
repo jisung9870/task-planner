@@ -55,6 +55,13 @@ type Task struct {
 	Executor Executor `yaml:"executor,omitempty"`
 	Priority Priority `yaml:"priority,omitempty"`
 
+	// Agent and Tier say who should carry the task out and how heavy it is;
+	// ClaimedBy is the run that took it. See "실행 agent 지정과 가져가기" in
+	// docs/product-task-planner-202609.md.
+	Agent     Agent  `yaml:"agent,omitempty"`
+	Tier      Tier   `yaml:"tier,omitempty"`
+	ClaimedBy string `yaml:"claimed_by,omitempty"`
+
 	Created Date `yaml:"created"`
 	Updated Date `yaml:"updated"`
 
@@ -120,6 +127,12 @@ func (t *Task) Validate() error {
 	}
 	if t.Status == StatusBlocked && t.BlockedReason == "" && len(t.BlockedBy) == 0 {
 		return fmt.Errorf("%s: %w", t.ID, ErrBlockedNeedsReason)
+	}
+	if _, err := ParseAgent(string(t.Agent)); err != nil {
+		return fmt.Errorf("%s: %w", t.ID, err)
+	}
+	if _, err := ParseTier(string(t.Tier)); err != nil {
+		return fmt.Errorf("%s: %w", t.ID, err)
 	}
 	if t.Priority != "" {
 		if _, err := ParsePriority(string(t.Priority)); err != nil {

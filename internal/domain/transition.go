@@ -68,6 +68,12 @@ func (t *Task) Transition(to Status, at time.Time, opts *TransitionOpts) error {
 		t.Completed = Date{}
 	}
 
+	// Back to 대기중 means the work is up for grabs again. 완료·취소 keep the
+	// claim as the record of which run did it.
+	if to == StatusTodo {
+		t.ClaimedBy = ""
+	}
+
 	capped := t.applyTimer(from, to, at, opts.SessionCap)
 
 	t.Status = to

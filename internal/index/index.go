@@ -12,7 +12,7 @@ import (
 
 // SchemaVersion is bumped whenever the on-disk entry shape changes; a mismatch
 // triggers a full rebuild rather than a migration.
-const SchemaVersion = 1
+const SchemaVersion = 2
 
 // Stats describes the last sync, for `tp index --status`.
 type Stats struct {
