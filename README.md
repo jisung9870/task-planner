@@ -453,8 +453,8 @@ tp add '문서 오탈자 정리' --agent auto                 # 허용된 누구
 tp list pick:claude                                   # claude 세션의 몫
 ```
 
-허용 agent 와 등급별 모델은 `<vault>/config.yaml` 에 둔다. 없으면 아래 기본값이다.
-일부만 적으면 나머지는 기본값을 유지한다.
+허용 agent 와 등급별 모델은 `<vault>/config.yaml` 에 둔다. 모델 표는 일부만 적으면
+나머지가 기본값을 유지한다.
 
 ```yaml
 agents:
@@ -463,6 +463,20 @@ agents:
     claude: {fast: haiku, standard: sonnet, deep: opus}
     codex:  {fast: gpt-6-luna, standard: gpt-6-sol, deep: gpt-6-astra}
 ```
+
+**허용 agent 를 정하는 순서.** 사람마다 Claude 만 또는 Codex 만 쓰고, 한 사람도 장비마다
+다를 수 있다. 앞의 것이 있으면 뒤는 보지 않는다.
+
+| 순서 | 출처 (`vault_info.agents_source`) | 쓰는 경우 |
+|---|---|---|
+| 1 | `TP_AGENTS=codex` 환경변수 (`env`) | 이 장비만 다를 때. vault 설정을 교체한다 |
+| 2 | `config.yaml` 의 `agents.allowed` (`config`) | 이 사람이 늘 한쪽만 쓸 때 |
+| 3 | PATH 에 있는 `claude`·`codex` CLI (`detected`) | 아무 설정도 없을 때. 설치만 보고 로그인 여부는 모른다 |
+| 4 | 둘 다 (`default`) | CLI 를 하나도 못 찾았을 때 |
+
+감지 결과는 `config.yaml` 에 기록하지 않는다(`tp init` 포함). vault 가 git 으로 다른 장비에
+가도 그 장비에서 다시 판단한다. 거부 메시지에 출처가 붙는다
+(`허용되지 않은 agent: claude (허용: codex ($TP_AGENTS))`).
 
 - `task_claim`(MCP) / `tp claim`(CLI)은 일을 `claimed_by: <agent>:<세션>` 으로 기록하고
   진행중으로 바꾼다. 결과에 해석된 `model` 이 함께 온다. ref 를 비우면 `pick:` 대상 중

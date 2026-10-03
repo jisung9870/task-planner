@@ -25,7 +25,7 @@ Use `--vault "$TP_VAULT"` when the configured base differs from the default. Kee
 
 ## Taking assigned work
 
-A task may name who should run it (`agent: claude|codex|auto`) and how heavy it is (`tier: fast|standard|deep`). `vault_info` returns the allowed agents, the tier→model table, and this connection's session id.
+A task may name who should run it (`agent: claude|codex|auto`) and how heavy it is (`tier: fast|standard|deep`). `vault_info` returns the allowed agents, where that list came from (`agents_source`: `env` = this machine's `TP_AGENTS`, `config`, `detected` from PATH, `default`), the tier→model table, and this connection's session id. If your own agent is not in the list, do not claim or assign work to it; tell the user which source excluded it.
 
 - To find your share, query `pick:<your agent>` (named for you or `auto`, open, not on hold, unclaimed). Do not take tasks named for another agent, and do not sweep up unnamed tasks; those are the human's.
 - Before working on a pickable task, call `task_claim` (empty `ref` takes the most urgent one). It refuses a task another run already claimed: report that instead of working around it. CLI: `tp claim [ref] --agent <agent> --session <id>`.
