@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -15,6 +16,8 @@ type addArgs struct {
 	Title     string   `json:"title" jsonschema:"태스크 제목 (필수). 40자 안쪽 명사구 한 줄, 한 제목에 한 가지 일. 상세는 note 로 (규약: tp://conventions)"`
 	Project   string   `json:"project,omitempty" jsonschema:"프로젝트 slug"`
 	Executor  string   `json:"executor,omitempty" jsonschema:"실행 주체 human|agent. 에이전트 수행 작업은 agent 필수"`
+	Agent     string   `json:"agent,omitempty" jsonschema:"실행할 agent: vault_info.agents 중 하나 또는 auto(누구든). 지정하면 executor=agent"`
+	Tier      string   `json:"tier,omitempty" jsonschema:"작업 무게 fast|standard|deep. 모델은 vault_info.models 로 정해짐"`
 	Priority  string   `json:"priority,omitempty" jsonschema:"우선순위 P0~P3"`
 	Scheduled string   `json:"scheduled,omitempty" jsonschema:"착수 예정일: YYYY-MM-DD | today | tomorrow"`
 	Due       string   `json:"due,omitempty" jsonschema:"마감일: YYYY-MM-DD | today | tomorrow"`
@@ -58,6 +61,8 @@ type editArgs struct {
 	Title     *string   `json:"title,omitempty"`
 	Project   *string   `json:"project,omitempty" jsonschema:"빈 문자열이면 프로젝트 해제"`
 	Executor  *string   `json:"executor,omitempty" jsonschema:"실행 주체 human|agent"`
+	Agent     *string   `json:"agent,omitempty" jsonschema:"실행할 agent 또는 auto. 빈 문자열이면 지정 해제"`
+	Tier      *string   `json:"tier,omitempty" jsonschema:"fast|standard|deep. 빈 문자열이면 해제"`
 	Priority  *string   `json:"priority,omitempty" jsonschema:"P0~P3, 빈 문자열이면 해제"`
 	Scheduled *string   `json:"scheduled,omitempty" jsonschema:"YYYY-MM-DD | today | tomorrow | none(해제)"`
 	Due       *string   `json:"due,omitempty" jsonschema:"YYYY-MM-DD | today | tomorrow | none(해제)"`
@@ -65,6 +70,24 @@ type editArgs struct {
 	Tags      *[]string `json:"tags,omitempty" jsonschema:"전체 교체"`
 	Recur     *string   `json:"recur,omitempty" jsonschema:"반복 규칙, 빈 문자열이면 반복 중단"`
 	Span      *string   `json:"span,omitempty" jsonschema:"진행 기간을 한 번에: 2026-09-15~2026-09-19 | today~+4d | ~2026-09-19(마감만) | none(해제). scheduled/due 와 같은 필드를 쓰므로 함께 지정할 수 없음"`
+}
+
+type claimArgs struct {
+	Ref     string `json:"ref,omitempty" jsonschema:"가져갈 태스크. 비우면 이 agent 몫 중 가장 급한 일"`
+	Agent   string `json:"agent,omitempty" jsonschema:"가져가는 agent. 생략하면 연결한 클라이언트 이름(claude·codex)으로 판단"`
+	Session string `json:"session,omitempty" jsonschema:"claimed_by 에 남길 세션 식별자. 생략하면 이 연결의 식별자(vault_info.session). 재시작 후 이어가려면 같은 값을 줄 것"`
+}
+
+type releaseArgs struct {
+	Ref     string `json:"ref" jsonschema:"놓을 태스크"`
+	Agent   string `json:"agent,omitempty"`
+	Session string `json:"session,omitempty"`
+	Force   bool   `json:"force,omitempty" jsonschema:"다른 세션의 claim 도 해제. 그 세션이 끝난 것을 사용자가 확인했을 때만"`
+}
+
+type claimOut struct {
+	mutateOut
+	Model string `json:"model,omitempty" jsonschema:"agent·tier 로 정해진 모델. 비어 있으면 tier 미정"`
 }
 
 type noteArgs struct {
@@ -117,6 +140,19 @@ func (s *Server) registerWriteTools() {
 		Description: "공유 vault에 태스크 추가. 에이전트 수행 작업은 executor=agent로 등록하고 note에 목표·계획·완료 기준을 기록한다. 작성 규약: tp://conventions.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in addArgs) (*mcp.CallToolResult, mutateOut, error) {
 		defer s.begin()()
+		agent, err := domain.ParseAgent(in.Agent)
+		if err != nil {
+			return nil, mutateOut{}, err
+		}
+		tier, err := domain.ParseTier(in.Tier)
+		if err != nil {
+			return nil, mutateOut{}, err
+		}
+		// Naming an agent makes it agent work; an omitted executor must not
+		// default to human and then collide with that.
+		if in.Executor == "" && agent != "" {
+			in.Executor = string(domain.ExecutorAgent)
+		}
 		executor, err := domain.ParseExecutor(in.Executor)
 		if err != nil {
 			return nil, mutateOut{}, err
@@ -130,7 +166,7 @@ func (s *Server) registerWriteTools() {
 		}
 		today := s.svc.Today()
 		ai := service.AddInput{
-			Title: in.Title, Project: in.Project, Executor: executor,
+			Title: in.Title, Project: in.Project, Executor: executor, Agent: agent, Tier: tier,
 			Tags: in.Tags, Links: in.Links, Note: in.Note, Recur: in.Recur,
 		}
 		// The executor controls note conventions independently of vault path.
@@ -224,6 +260,20 @@ func (s *Server) registerWriteTools() {
 			}
 			ei.Executor = &e
 		}
+		if in.Agent != nil {
+			a, err := domain.ParseAgent(*in.Agent)
+			if err != nil {
+				return nil, mutateOut{}, err
+			}
+			ei.Agent = &a
+		}
+		if in.Tier != nil {
+			tr, err := domain.ParseTier(*in.Tier)
+			if err != nil {
+				return nil, mutateOut{}, err
+			}
+			ei.Tier = &tr
+		}
 		if in.Priority != nil {
 			p, err := domain.ParsePriority(*in.Priority)
 			if err != nil {
@@ -277,6 +327,58 @@ func (s *Server) registerWriteTools() {
 			return nil, mutateOut{}, err
 		}
 		return nil, withWarnings(toMutateOut(res, today), issues), nil
+	})
+
+	mcp.AddTool(s.mcp, &mcp.Tool{
+		Name:        "task_claim",
+		Description: "이 세션이 일을 가져가 진행중으로 바꾼다. ref 를 비우면 이 agent 몫(agent 가 같거나 auto, 미보류, 아무도 안 가져간 일) 중 가장 급한 것을 가져간다. 다른 세션이 이미 가져갔으면 거부. 결과의 model 로 실행할 모델을 정한다 — 비어 있으면 tier 를 판단해 task_edit 로 남길 것.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in claimArgs) (*mcp.CallToolResult, claimOut, error) {
+		defer s.begin()()
+		agent, err := s.callerAgent(req, in.Agent)
+		if err != nil {
+			return nil, claimOut{}, err
+		}
+		session := in.Session
+		if session == "" {
+			session = s.session
+		}
+		res, err := s.svc.Claim(service.ClaimInput{Ref: in.Ref, Agent: agent, Session: session})
+		if err != nil {
+			return nil, claimOut{}, err
+		}
+		if err := s.finish(); err != nil {
+			return nil, claimOut{}, err
+		}
+		return nil, claimOut{mutateOut: toMutateOut(res, s.svc.Today()), Model: s.svc.ModelFor(res.Task)}, nil
+	})
+
+	mcp.AddTool(s.mcp, &mcp.Tool{
+		Name:        "task_release",
+		Description: "가져간 일을 놓는다 (진행중이면 대기중으로). 이 세션이 가져간 것만 놓을 수 있고, 죽은 세션의 claim 은 사용자가 확인한 뒤 force 로.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in releaseArgs) (*mcp.CallToolResult, mutateOut, error) {
+		defer s.begin()()
+		by := ""
+		if !in.Force {
+			agent, err := s.callerAgent(req, in.Agent)
+			if err != nil {
+				return nil, mutateOut{}, err
+			}
+			session := in.Session
+			if session == "" {
+				session = s.session
+			}
+			if by, err = domain.ClaimRef(agent, session); err != nil {
+				return nil, mutateOut{}, err
+			}
+		}
+		res, err := s.svc.Release(in.Ref, by, in.Force)
+		if err != nil {
+			return nil, mutateOut{}, err
+		}
+		if err := s.finish(); err != nil {
+			return nil, mutateOut{}, err
+		}
+		return nil, toMutateOut(res, s.svc.Today()), nil
 	})
 
 	mcp.AddTool(s.mcp, &mcp.Tool{
@@ -416,4 +518,24 @@ func toMutateOut(res *service.Result, today domain.Date) mutateOut {
 		out.Next = &n
 	}
 	return out
+}
+
+// callerAgent is the explicit agent argument, or else the agent the MCP client
+// identified itself as. Guessing from anything vaguer would let a session
+// claim work under another agent's name.
+func (s *Server) callerAgent(req *mcp.CallToolRequest, explicit string) (domain.Agent, error) {
+	if explicit != "" {
+		return domain.ParseAgent(explicit)
+	}
+	if req != nil && req.Session != nil {
+		if p := req.Session.InitializeParams(); p != nil && p.ClientInfo != nil {
+			name := strings.ToLower(p.ClientInfo.Name)
+			for _, a := range s.svc.Cfg.Agents.Allowed {
+				if strings.Contains(name, string(a)) {
+					return a, nil
+				}
+			}
+		}
+	}
+	return "", fmt.Errorf("agent 를 지정하세요 (클라이언트 이름으로 판단할 수 없음)")
 }

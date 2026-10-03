@@ -110,6 +110,7 @@ func TestNoDeleteToolExposed(t *testing.T) {
 	for _, want := range []string{
 		"task_today", "task_query", "task_add", "task_status", "report_week", "summary",
 		"task_note", "task_next", "day_load", "project_create", "project_set", "archive",
+		"task_claim", "task_release",
 	} {
 		found := false
 		for _, n := range names {

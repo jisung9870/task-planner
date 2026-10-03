@@ -11,6 +11,8 @@ package mcpserver
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -26,11 +28,16 @@ type Server struct {
 	// mu serialises tool calls. The MCP session is long-lived and the SDK may
 	// dispatch concurrently; Edit's load-modify-save is not safe to interleave.
 	mu sync.Mutex
+
+	// session names this process in claimed_by when the caller gives none.
+	// One tp mcp process serves one agent session, so a per-process id is
+	// what "this session" means here.
+	session string
 }
 
 // New builds the server and registers the tool surface.
 func New(svc *service.Service, version string) *Server {
-	s := &Server{svc: svc}
+	s := &Server{svc: svc, session: newSessionID()}
 	s.mcp = mcp.NewServer(&mcp.Implementation{
 		Name:    "task-planner",
 		Title:   "task-planner (markdown 업무 관리)",
@@ -70,4 +77,12 @@ func (s *Server) finish() error {
 		return err
 	}
 	return nil
+}
+
+func newSessionID() string {
+	b := make([]byte, 4)
+	if _, err := rand.Read(b); err != nil {
+		return "mcp"
+	}
+	return "mcp-" + hex.EncodeToString(b)
 }

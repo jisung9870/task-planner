@@ -17,6 +17,9 @@ type taskJSON struct {
 	StatusLabel   string   `json:"status_label"`
 	Project       string   `json:"project,omitempty"`
 	Executor      string   `json:"executor"`
+	Agent         string   `json:"agent,omitempty"`
+	Tier          string   `json:"tier,omitempty"`
+	ClaimedBy     string   `json:"claimed_by,omitempty"`
 	Priority      string   `json:"priority,omitempty"`
 	Scheduled     string   `json:"scheduled,omitempty"`
 	Due           string   `json:"due,omitempty"`
@@ -40,6 +43,9 @@ func toTaskJSON(t *domain.Task, today domain.Date) taskJSON {
 		StatusLabel:   t.Status.Label(),
 		Project:       t.Project,
 		Executor:      string(t.Executor.Effective()),
+		Agent:         string(t.Agent),
+		Tier:          string(t.Tier),
+		ClaimedBy:     t.ClaimedBy,
 		Priority:      string(t.Priority),
 		Scheduled:     t.Scheduled.String(),
 		Due:           t.Due.String(),

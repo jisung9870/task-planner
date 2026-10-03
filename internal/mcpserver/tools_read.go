@@ -17,6 +17,11 @@ type taskListOut struct {
 type vaultInfoOut struct {
 	Path string `json:"path"`
 	Mode string `json:"mode" jsonschema:"shared (한 vault에서 executor 필드로 구분)"`
+	// Agents is the table a session needs to turn a task's agent·tier into a
+	// model without reading config.yaml itself.
+	Agents  []string                     `json:"agents" jsonschema:"태스크에 지정할 수 있는 agent (auto 는 이 중 누구든)"`
+	Models  map[string]map[string]string `json:"models" jsonschema:"agent별 tier(fast|standard|deep) → 모델"`
+	Session string                       `json:"session" jsonschema:"task_claim 이 session 생략 시 쓰는 이 연결의 식별자"`
 }
 
 type weekArgs struct {
@@ -24,7 +29,7 @@ type weekArgs struct {
 }
 
 type queryArgs struct {
-	Query string `json:"query" jsonschema:"필터 질의. 예: executor:agent status:doing project:infra. 필드: executor status project tag priority due scheduled rollover is id body"`
+	Query string `json:"query" jsonschema:"필터 질의. 예: executor:agent status:doing project:infra. 필드: executor agent tier pick status project tag priority due scheduled rollover is id body. 자기 몫 찾기: pick:claude"`
 }
 
 type refArgs struct {
@@ -32,10 +37,11 @@ type refArgs struct {
 }
 
 type taskDetailOut struct {
-	Task taskJSON `json:"task"`
-	Note string   `json:"note,omitempty"`
-	Log  []string `json:"log,omitempty"`
-	Path string   `json:"path"`
+	Task  taskJSON `json:"task"`
+	Model string   `json:"model,omitempty" jsonschema:"agent·tier 로 정해진 모델. 둘 중 하나가 열려 있으면 비어 있음"`
+	Note  string   `json:"note,omitempty"`
+	Log   []string `json:"log,omitempty"`
+	Path  string   `json:"path"`
 }
 
 type summaryOut struct {
@@ -134,7 +140,19 @@ func (s *Server) registerReadTools() {
 		Name:        "vault_info",
 		Description: "연결된 공유 vault 경로를 확인. 에이전트 수행 작업은 task_add executor=agent로 기록한다.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, _ any) (*mcp.CallToolResult, vaultInfoOut, error) {
-		return nil, vaultInfoOut{Path: s.svc.Cfg.Vault, Mode: "shared"}, nil
+		ag := s.svc.Cfg.Agents
+		out := vaultInfoOut{Path: s.svc.Cfg.Vault, Mode: "shared", Session: s.session, Models: map[string]map[string]string{}}
+		for _, a := range ag.Allowed {
+			out.Agents = append(out.Agents, string(a))
+		}
+		for a, tiers := range ag.Models {
+			m := map[string]string{}
+			for tier, model := range tiers {
+				m[string(tier)] = model
+			}
+			out.Models[string(a)] = m
+		}
+		return nil, out, nil
 	})
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "task_today",
@@ -184,10 +202,11 @@ func (s *Server) registerReadTools() {
 			return nil, taskDetailOut{}, err
 		}
 		return nil, taskDetailOut{
-			Task: toTaskJSON(t, s.svc.Today()),
-			Note: t.Note(),
-			Log:  t.LogLines(),
-			Path: t.Path,
+			Task:  toTaskJSON(t, s.svc.Today()),
+			Model: s.svc.ModelFor(t),
+			Note:  t.Note(),
+			Log:   t.LogLines(),
+			Path:  t.Path,
 		}, nil
 	})
 
