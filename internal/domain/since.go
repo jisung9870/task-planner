@@ -29,8 +29,12 @@ func ParseSince(s string, now time.Time) (time.Time, error) {
 	if s == "" {
 		return time.Time{}, fmt.Errorf("착수 시각이 비어 있음")
 	}
-	if d, err := ParseDuration(s); err == nil && d > 0 {
-		return now.Add(-time.Duration(d)).Truncate(time.Minute), nil
+	// A duration needs its unit: a bare "1030" typed at this prompt means
+	// 10:30, not 1030 minutes ago.
+	if strings.ContainsAny(s, "hmd") && !strings.Contains(s, ":") {
+		if d, err := ParseDuration(s); err == nil && d > 0 {
+			return now.Add(-time.Duration(d)).Truncate(time.Minute), nil
+		}
 	}
 	day, clock := DateOf(now), s
 	if i := strings.LastIndexByte(s, ' '); i >= 0 {
@@ -38,7 +42,13 @@ func ParseSince(s string, now time.Time) (time.Time, error) {
 		if err != nil {
 			return time.Time{}, err
 		}
+		if d.IsZero() { // "- 14:00", "none 14:00": a cleared date is no date
+			return time.Time{}, fmt.Errorf("착수 날짜를 읽을 수 없음: %q", s[:i])
+		}
 		day, clock = d, strings.TrimSpace(s[i+1:])
+	}
+	if n := len(clock); (n == 3 || n == 4) && strings.Trim(clock, "0123456789") == "" {
+		clock = clock[:n-2] + ":" + clock[n-2:] // 1030 → 10:30, 930 → 9:30
 	}
 	hm, err := time.Parse("15:04", clock)
 	if err != nil {

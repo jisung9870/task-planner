@@ -176,3 +176,32 @@ func TestAbsoluteSinceAgreesOnBothClocks(t *testing.T) {
 		t.Fatalf("actual=%s lead=%s", task.Actual, SpanText(end.Sub(start)))
 	}
 }
+
+func TestParseSinceReadsBareDigitsAsClockAndRejectsClearedDate(t *testing.T) {
+	got, err := ParseSince("1030", sinceNow)
+	if err != nil || got.Format(sinceLayout) != "2026-10-03 10:30" {
+		t.Fatalf("1030 → %s (%v)", got, err)
+	}
+	for _, in := range []string{"- 14:00", "none 09:00"} {
+		if _, err := ParseSince(in, sinceNow); err == nil {
+			t.Errorf("%q accepted", in)
+		}
+	}
+}
+
+func TestBackfillRefusedOnDoneTaskAndBeforeEarlierFinish(t *testing.T) {
+	task := &Task{ID: "T-1", Title: "x", Status: StatusTodo}
+	_ = task.Transition(StatusDone, sinceNow.Add(-3*time.Hour), nil)
+	early := sinceNow.Add(-4 * time.Hour)
+	if err := task.Transition(StatusDone, sinceNow, &TransitionOpts{Since: &early}); err == nil {
+		t.Error("since on an already-done task silently accepted")
+	}
+	_ = task.Transition(StatusTodo, sinceNow.Add(-2*time.Hour), nil)
+	if err := task.Transition(StatusDone, sinceNow, &TransitionOpts{Since: &early}); err == nil {
+		t.Error("since before the earlier completion accepted")
+	}
+	later := sinceNow.Add(-90 * time.Minute)
+	if err := task.Transition(StatusDone, sinceNow, &TransitionOpts{Since: &later}); err != nil {
+		t.Fatalf("since after the earlier completion refused: %v", err)
+	}
+}

@@ -36,6 +36,9 @@ func (t *Task) Transition(to Status, at time.Time, opts *TransitionOpts) error {
 	}
 	block := opts.Block
 	from := t.Status
+	if opts.Since != nil && from == to {
+		return fmt.Errorf("이미 %s 상태 — 착수 시각은 완료하는 순간에만 소급할 수 있음", to.Label())
+	}
 	if from == to && to != StatusBlocked {
 		return nil
 	}
@@ -148,6 +151,14 @@ func (t *Task) checkSince(to Status, since, at time.Time) error {
 		if !s.End.IsZero() && since.Before(s.End) {
 			return fmt.Errorf("착수 시각(%s)이 이미 기록된 진행 구간(%s~%s)과 겹침",
 				since.Format(sinceLayout), s.Start.Format(sinceLayout), s.End.Format("15:04"))
+		}
+	}
+	// An earlier completion inside the new session would leave two finishes
+	// in one stretch of work.
+	for _, f := range h.Finishes {
+		if since.Before(f.At) {
+			return fmt.Errorf("착수 시각(%s)이 이전 %s 기록(%s)보다 앞섬",
+				since.Format(sinceLayout), f.Status.Label(), f.At.Format(sinceLayout))
 		}
 	}
 	return nil
