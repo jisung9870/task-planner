@@ -103,7 +103,7 @@ func TestRolloverIfEnabledRespectsConfig(t *testing.T) {
 func TestRolloverSkipsTaskStillInsideItsSpan(t *testing.T) {
 	svc := newTestService(t)
 	task, _ := svc.Add(AddInput{Title: "리팩터링 스프린트"})
-	if _, err := svc.SetSpan(task.ID, mustSpan(t, svc, "09-09~09-20")); err != nil {
+	if _, err := svc.EditWithSpan(task.ID, EditInput{}, ptrSpan(mustSpan(t, svc, "09-09~09-20"))); err != nil {
 		t.Fatal(err)
 	}
 	rep, err := svc.Rollover()
@@ -123,7 +123,7 @@ func TestRolloverSkipsTaskStillInsideItsSpan(t *testing.T) {
 func TestRolloverCarriesTaskWhoseSpanEnded(t *testing.T) {
 	svc := newTestService(t)
 	task, _ := svc.Add(AddInput{Title: "지난 주 작업"})
-	if _, err := svc.SetSpan(task.ID, mustSpan(t, svc, "09-07~09-09")); err != nil {
+	if _, err := svc.EditWithSpan(task.ID, EditInput{}, ptrSpan(mustSpan(t, svc, "09-07~09-09"))); err != nil {
 		t.Fatal(err)
 	}
 	rep, err := svc.Rollover()

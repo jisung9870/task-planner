@@ -14,7 +14,7 @@ import (
 func TestDayLoadSpreadsSpanEstimate(t *testing.T) {
 	svc := newTestService(t)
 	long, _ := svc.Add(AddInput{Title: "리팩터링", Estimate: dur(t, "8h")})
-	if _, err := svc.SetSpan(long.ID, mustSpan(t, svc, "09-12~09-15")); err != nil {
+	if _, err := svc.EditWithSpan(long.ID, EditInput{}, ptrSpan(mustSpan(t, svc, "09-12~09-15"))); err != nil {
 		t.Fatal(err)
 	}
 	single, _ := svc.Add(AddInput{Title: "회고", Estimate: dur(t, "1h"), Scheduled: svc.Today()})

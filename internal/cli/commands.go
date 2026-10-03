@@ -39,9 +39,9 @@ func newInitCmd() *cobra.Command {
 
 func newAddCmd() *cobra.Command {
 	var (
-		project, executor, agent, tier, priority, sched, due, estimate, note, recur string
-		tags, links                                                                 []string
-		start                                                                       bool
+		project, executor, agent, tier, priority, sched, note, recur string
+		tags, links                                                  []string
+		start                                                        bool
 	)
 	cmd := &cobra.Command{
 		Use:   "add <제목...>",
@@ -78,12 +78,6 @@ func newAddCmd() *cobra.Command {
 				if in.Scheduled, err = parseDateFlag(svc, sched); err != nil {
 					return err
 				}
-				if in.Due, err = parseDateFlag(svc, due); err != nil {
-					return err
-				}
-				if in.Estimate, err = domain.ParseDuration(estimate); err != nil {
-					return err
-				}
 				if start {
 					in.Status = domain.StatusDoing
 				}
@@ -106,9 +100,7 @@ func newAddCmd() *cobra.Command {
 	f.StringVar(&agent, "agent", "", "실행할 agent (config agents.allowed 중 하나 또는 auto)")
 	f.StringVar(&tier, "tier", "", "작업 무게 fast|standard|deep (모델은 config agents.models)")
 	f.StringVar(&priority, "priority", "", "우선순위 P0~P3")
-	f.StringVarP(&sched, "scheduled", "s", "", "착수 예정일 (YYYY-MM-DD | today | tomorrow | +3d | mon)")
-	f.StringVarP(&due, "due", "d", "", "마감일 (동일 형식)")
-	f.StringVarP(&estimate, "estimate", "e", "", "예상 소요 (30m, 2h)")
+	f.StringVarP(&sched, "scheduled", "s", "", "꺼낼 날 — 이날부터 Today 에 보임 (YYYY-MM-DD | today | +3d | mon)")
 	f.StringSliceVarP(&tags, "tag", "t", nil, "태그 (반복 지정 가능)")
 	f.StringSliceVarP(&links, "link", "l", nil, "외부 링크 (jira:ABC-123 등)")
 	f.StringVarP(&note, "note", "n", "", "메모 본문")

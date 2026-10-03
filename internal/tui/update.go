@@ -384,9 +384,7 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "L":
 		m.moveCard(1)
 	case "[", "]":
-		m.shiftSpan(map[string]int{"[": -1, "]": 1}[msg.String()])
-	case "{", "}":
-		m.resizeSpan(map[string]int{"{": -1, "}": 1}[msg.String()])
+		m.shiftScheduled(map[string]int{"[": -1, "]": 1}[msg.String()])
 	case "g", "home":
 		m.cursor, m.rowCursor = 0, 0
 		m.clampCursor()
@@ -541,7 +539,7 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, textinput.Blink
 		}
 		if t := m.current(); t != nil {
-			m.startPrompt(modeSpan, "기간: ", t.Span().String())
+			m.startPrompt(modeScheduled, "꺼낼 날: ", t.Scheduled.String())
 			return m, textinput.Blink
 		}
 	case "n":
@@ -730,8 +728,8 @@ func (m *Model) updatePrompt(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.capture(value)
 		case modeSearch:
 			m.applySearch(value, true)
-		case modeSpan:
-			m.setSpan(value)
+		case modeScheduled:
+			m.setScheduled(value)
 		case modeProject:
 			m.setProject(value)
 		case modeNewProject:
@@ -973,15 +971,15 @@ func (m *Model) submitForm() {
 	}
 	in, projRow := m.captureInput(title)
 	in.Note = strings.TrimSpace(m.formVals[formDesc])
-	if v := strings.TrimSpace(m.formVals[formSpan]); v != "" {
-		sp, err := m.svc.ParseSpan(v)
+	if v := strings.TrimSpace(m.formVals[formScheduled]); v != "" {
+		d, err := m.svc.ParseDate(v)
 		if err != nil {
-			m.formSetFocus(formSpan)
+			m.formSetFocus(formScheduled)
 			m.setErr(err)
 			return
 		}
-		// A typed period wins over the tab's contextual default.
-		in.Scheduled, in.Due = sp.Start, sp.End
+		// A typed day wins over the tab's contextual default.
+		in.Scheduled = d
 	}
 	if tags := splitTags(m.formVals[formTags]); len(tags) > 0 {
 		in.Tags = tags
@@ -1145,7 +1143,7 @@ func (m *Model) moveCard(delta int) {
 		return
 	}
 	if m.tab == tabWeek {
-		m.shiftSpan(delta)
+		m.shiftScheduled(delta)
 		return
 	}
 	ts := m.targets()
@@ -1273,73 +1271,52 @@ func (m *Model) selectID(id string) {
 	m.clampCursor()
 }
 
-// shiftSpan slides each target's whole 진행 기간 by a day, keeping its length -
-// the re-planning gesture ("이건 하루 밀자"). An unscheduled task gets today
-// first, so the first press pulls it out of the 미배정 lane instead of jumping
-// blindly.
-func (m *Model) shiftSpan(days int) {
+// shiftScheduled moves the day each target surfaces by n days - the
+// re-planning gesture ("이건 하루 밀자"). A task with no date gets today first,
+// so the first press pulls it out of the backlog instead of jumping blindly.
+func (m *Model) shiftScheduled(days int) {
 	ts := m.targets()
 	if len(ts) == 0 {
 		return
 	}
-	verb := "기간 하루 뒤로"
+	verb := "꺼낼 날 하루 뒤로"
 	if days < 0 {
-		verb = "기간 하루 앞으로"
+		verb = "꺼낼 날 하루 앞으로"
 	}
-	m.spanMutate(m.bulkLabel(ts, verb), ts, func(t *domain.Task) (*service.Result, error) {
-		return m.svc.ShiftSpan(t.ID, days)
+	m.scheduledMutate(m.bulkLabel(ts, verb), ts, func(t *domain.Task) (*service.Result, error) {
+		return m.svc.ShiftScheduled(t.ID, days)
 	})
 }
 
-// resizeSpan moves only the end of the period: the task starts when it started
-// and now takes longer (or less).
-func (m *Model) resizeSpan(days int) {
-	ts := m.targets()
-	if len(ts) == 0 {
-		return
-	}
-	verb := "기간 늘림"
-	if days < 0 {
-		verb = "기간 줄임"
-	}
-	m.spanMutate(m.bulkLabel(ts, verb), ts, func(t *domain.Task) (*service.Result, error) {
-		return m.svc.ResizeSpan(t.ID, days)
-	})
-}
-
-// setSpan applies a typed period ("09-15~09-19").
-func (m *Model) setSpan(value string) {
+// setScheduled applies a typed day ("mon", "10-20", "-" to clear).
+func (m *Model) setScheduled(value string) {
 	ts := m.targets()
 	if len(ts) == 0 || value == "" {
 		return
 	}
-	sp, err := m.svc.ParseSpan(value)
+	d, err := m.svc.ParseDate(value)
 	if err != nil {
 		m.setErr(err)
 		return
 	}
-	m.spanMutate(m.bulkLabel(ts, "기간 설정"), ts, func(t *domain.Task) (*service.Result, error) {
-		return m.svc.SetSpan(t.ID, sp)
+	m.scheduledMutate(m.bulkLabel(ts, "꺼낼 날 설정"), ts, func(t *domain.Task) (*service.Result, error) {
+		return m.svc.Edit(t.ID, service.EditInput{Scheduled: &d})
 	})
 }
 
-// spanMutate is mutate() with a status line that states the resulting period,
-// which is the whole point of the keys that call it.
-func (m *Model) spanMutate(label string, ts []*domain.Task, fn func(*domain.Task) (*service.Result, error)) {
+// scheduledMutate is mutate() with a status line that states the resulting
+// day, which is the whole point of the keys that call it.
+func (m *Model) scheduledMutate(label string, ts []*domain.Task, fn func(*domain.Task) (*service.Result, error)) {
 	bulk := len(ts) > 1
 	m.mutate(label, ts, fn)
 	if bulk || m.errMsg != "" {
 		return
 	}
 	if t := m.current(); t != nil {
-		switch {
-		case t.SpanDays() == 0:
-			m.setStatus("%s 기간 해제", t.ShortID())
-		case t.HasSpan():
-			m.setStatus("%s 기간 %s", t.ShortID(), t.SpanLabel())
-		default:
-			d := t.SpanStart()
-			m.setStatus("%s 예정 → %s (%s)", t.ShortID(), d, d.WeekdayKO())
+		if d := t.Scheduled; d.IsZero() {
+			m.setStatus("%s 꺼낼 날 해제 — 백로그", t.ShortID())
+		} else {
+			m.setStatus("%s 꺼낼 날 → %s (%s)", t.ShortID(), d, d.WeekdayKO())
 		}
 	}
 }

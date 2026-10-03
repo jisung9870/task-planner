@@ -1229,8 +1229,8 @@ func (m *Model) footer() string {
 // writes a wrong date into a file.
 func (m *Model) promptHint() string {
 	switch m.mode {
-	case modeSpan:
-		return "enter 확인  esc 취소   예: 09-15~09-19 · today~+4d · 09-15 (시작만) · ~09-19 (마감만) · - 해제"
+	case modeScheduled:
+		return "enter 확인  esc 취소   이날부터 Today 에 보입니다   예: today · mon · 10-20 · +3d · - 해제(백로그)"
 	case modeProject:
 		hint := "enter 확인  esc 취소   - 입력 시 해제"
 		if slugs := m.svc.ProjectSlugs(); len(slugs) > 0 {

@@ -19,9 +19,9 @@ type addArgs struct {
 	Agent     string   `json:"agent,omitempty" jsonschema:"실행할 agent: vault_info.agents 중 하나 또는 auto(누구든). 지정하면 executor=agent"`
 	Tier      string   `json:"tier,omitempty" jsonschema:"작업 무게 fast|standard|deep. 모델은 vault_info.models 로 정해짐"`
 	Priority  string   `json:"priority,omitempty" jsonschema:"우선순위 P0~P3"`
-	Scheduled string   `json:"scheduled,omitempty" jsonschema:"착수 예정일: YYYY-MM-DD | today | tomorrow"`
-	Due       string   `json:"due,omitempty" jsonschema:"마감일: YYYY-MM-DD | today | tomorrow"`
-	Estimate  string   `json:"estimate,omitempty" jsonschema:"예상 소요 (30m, 2h, 1h30m)"`
+	Scheduled string   `json:"scheduled,omitempty" jsonschema:"꺼낼 날: 이날부터 Today 에 보인다. 마감 아님. YYYY-MM-DD | today | tomorrow | +3d | mon"`
+	Due       string   `json:"due,omitempty" jsonschema:"폐지 예정(2026-10-03) — 저장은 되지만 어디에도 쓰이지 않는다. 보내지 말 것"`
+	Estimate  string   `json:"estimate,omitempty" jsonschema:"폐지 예정(2026-10-03) — 저장은 되지만 어디에도 쓰이지 않는다. 소요는 진행중→완료 기록에서 계산된다"`
 	Tags      []string `json:"tags,omitempty"`
 	Links     []string `json:"links,omitempty" jsonschema:"외부 링크 (jira:ABC-123 등)"`
 	Note      string   `json:"note,omitempty" jsonschema:"메모 본문. human 작업은 사실 2~4줄, agent 작업은 목표·단계·완료 기준 (규약: tp://conventions)"`
@@ -65,12 +65,12 @@ type editArgs struct {
 	Agent     *string   `json:"agent,omitempty" jsonschema:"실행할 agent 또는 auto. 빈 문자열이면 지정 해제"`
 	Tier      *string   `json:"tier,omitempty" jsonschema:"fast|standard|deep. 빈 문자열이면 해제"`
 	Priority  *string   `json:"priority,omitempty" jsonschema:"P0~P3, 빈 문자열이면 해제"`
-	Scheduled *string   `json:"scheduled,omitempty" jsonschema:"YYYY-MM-DD | today | tomorrow | none(해제)"`
-	Due       *string   `json:"due,omitempty" jsonschema:"YYYY-MM-DD | today | tomorrow | none(해제)"`
-	Estimate  *string   `json:"estimate,omitempty" jsonschema:"30m, 2h 등. 빈 문자열이면 해제"`
+	Scheduled *string   `json:"scheduled,omitempty" jsonschema:"꺼낼 날: YYYY-MM-DD | today | tomorrow | +3d | none(해제 — 백로그로)"`
+	Due       *string   `json:"due,omitempty" jsonschema:"폐지 예정(2026-10-03) — 보내지 말 것"`
+	Estimate  *string   `json:"estimate,omitempty" jsonschema:"폐지 예정(2026-10-03) — 보내지 말 것"`
 	Tags      *[]string `json:"tags,omitempty" jsonschema:"전체 교체"`
 	Recur     *string   `json:"recur,omitempty" jsonschema:"반복 규칙, 빈 문자열이면 반복 중단"`
-	Span      *string   `json:"span,omitempty" jsonschema:"진행 기간을 한 번에: 2026-09-15~2026-09-19 | today~+4d | ~2026-09-19(마감만) | none(해제). scheduled/due 와 같은 필드를 쓰므로 함께 지정할 수 없음. 다른 필드와는 함께 보내도 됨"`
+	Span      *string   `json:"span,omitempty" jsonschema:"폐지 예정(2026-10-03) — 진행 기간(scheduled~due)은 없어졌다. 꺼낼 날은 scheduled 로"`
 }
 
 type claimArgs struct {
@@ -135,6 +135,20 @@ type rolloverOut struct {
 	Warning string     `json:"warning,omitempty"`
 }
 
+// deprecatedFields warns about inputs retired on 2026-10-03 (기획서 "시간: 계획이
+// 아니라 기록"). They are still saved for one release so an agent following an
+// older skill does not fail mid-task; the warning is how it learns to stop.
+func deprecatedFields(due, estimate, span bool) []string {
+	var out []string
+	if due || span {
+		out = append(out, "due·span 은 폐지 예정입니다 — 마감은 더 쓰지 않습니다. 언제 꺼낼지는 scheduled 로")
+	}
+	if estimate {
+		out = append(out, "estimate 는 폐지 예정입니다 — 소요는 진행중→완료 기록에서 계산합니다. 시작을 놓쳤으면 task_status done 에 since")
+	}
+	return out
+}
+
 func (s *Server) registerWriteTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "task_add",
@@ -183,6 +197,7 @@ func (s *Server) registerWriteTools() {
 		if ai.Estimate, err = domain.ParseDuration(in.Estimate); err != nil {
 			return nil, mutateOut{}, err
 		}
+		deprecated := deprecatedFields(in.Due != "", in.Estimate != "", false)
 		if in.Start {
 			ai.Status = domain.StatusDoing
 		}
@@ -193,7 +208,9 @@ func (s *Server) registerWriteTools() {
 		if err := s.finish(); err != nil {
 			return nil, mutateOut{}, err
 		}
-		return nil, withWarnings(toMutateOut(res, today), issues), nil
+		out := withWarnings(toMutateOut(res, today), issues)
+		out.Warnings = append(out.Warnings, deprecated...)
+		return nil, out, nil
 	})
 
 	mcp.AddTool(s.mcp, &mcp.Tool{
@@ -251,7 +268,7 @@ func (s *Server) registerWriteTools() {
 
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "task_edit",
-		Description: "필드 수정 (부분 갱신 — 지정한 필드만 바뀜). 변경 내역이 태스크 로그에 남음. 진행 기간은 span 하나로 지정할 수 있고, 다른 필드와 함께 보내면 한 번에 저장됨.",
+		Description: "필드 수정 (부분 갱신 — 지정한 필드만 바뀜). 변경 내역이 태스크 로그에 남음. 미리 정하는 값은 priority 와 scheduled(꺼낼 날)뿐이다.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in editArgs) (*mcp.CallToolResult, mutateOut, error) {
 		defer s.begin()()
 		var issues []style.Issue
@@ -327,7 +344,9 @@ func (s *Server) registerWriteTools() {
 		if err := s.finish(); err != nil {
 			return nil, mutateOut{}, err
 		}
-		return nil, withWarnings(toMutateOut(res, today), issues), nil
+		out := withWarnings(toMutateOut(res, today), issues)
+		out.Warnings = append(out.Warnings, deprecatedFields(in.Due != nil, in.Estimate != nil, in.Span != nil)...)
+		return nil, out, nil
 	})
 
 	mcp.AddTool(s.mcp, &mcp.Tool{

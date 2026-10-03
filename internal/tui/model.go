@@ -52,7 +52,7 @@ const (
 	modeCapture
 	modeBlock
 	modeSearch
-	modeSpan
+	modeScheduled
 	modeProject
 	modeNewProject
 	modeProjectDue
@@ -68,7 +68,7 @@ const (
 // prompting reports whether the mode is a one-line text prompt.
 func (md mode) prompting() bool {
 	switch md {
-	case modeCapture, modeBlock, modeSearch, modeSpan, modeProject, modeNewProject,
+	case modeCapture, modeBlock, modeSearch, modeScheduled, modeProject, modeNewProject,
 		modeProjectDue, modeNote, modeSaveView, modeSince:
 		return true
 	}
@@ -91,12 +91,12 @@ func (r row) selectable() bool { return r.task != nil || r.proj != nil }
 const (
 	formTitle = iota
 	formDesc
-	formSpan
+	formScheduled
 	formTags
 	formCount
 )
 
-var formLabels = [formCount]string{"제목", "설명", "기간", "태그"}
+var formLabels = [formCount]string{"제목", "설명", "꺼낼 날", "태그"}
 
 // tabState is what a tab remembers while another one is on screen. Resetting
 // the cursor on every switch made a round trip to Week and back lose the row
