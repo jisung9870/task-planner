@@ -32,6 +32,15 @@ A task may name who should run it (`agent: claude|codex|auto`) and how heavy it 
 - Use the returned `model` for the work, for example as the subagent model. If it is empty, judge the tier yourself, record it with `task_edit` (`tier`), and note the reason.
 - If you stop without finishing, call `task_release`. Never force-release another run's claim unless the user confirms that run has ended.
 
+## Choosing and raising the tier
+
+The same rules live in the task-planner design doc ("tier 를 고르는 기준과 올리는 규칙") and README; change all three together.
+
+- Judge by "would a mistake be noticed?", not by size or tokens. Objectively checkable work (tests, build, fixed output) is `fast` when local and repetitive, otherwise `standard`. Work whose correctness needs judgement (design, unknown cause, review) is `deep`. Anything touching foundations, security or data is `deep`, or `standard` implementation plus a `deep` review.
+- Plan and review at `deep`; implement an agreed plan at `standard`.
+- Raise one step with `task_edit` (`tier`) and a note giving the reason when the same verification fails twice or a review finds a structural problem. Never lower it; split the task instead.
+- The tier only matters when the work is handed off (a subagent, or another session taking it with `pick:`). When you implement directly in the main session, use your own model regardless of the tier.
+
 ## During work
 
 Append a dated note after a meaningful step, a changed plan, a blocker, or a validation result. Say what actually happened and include the relevant file, command outcome, error, or artifact reference. Keep notes brief; the task is a progress record, while code and documents remain the source for current implementation. Do not write speculative success, sensitive values, or a transcript of every tool call. If the user changes scope, update the active task's plan in a note before continuing.
