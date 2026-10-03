@@ -246,7 +246,13 @@ agents:
     codex:  {fast: gpt-6-luna, standard: gpt-6-sol, deep: gpt-6-astra}
 ```
 
-- `allowed` 밖의 agent 는 등록·수정·가져가기에서 거부한다. `auto` 는 "허용된
+- 허용 목록은 사람·장비마다 다르다(Claude 만, Codex 만, 장비별로 다름). 정하는 순서:
+  ① 환경변수 `TP_AGENTS=codex`(이 장비, vault 설정을 교체) → ② `config.yaml` 의
+  `agents.allowed`(이 사람의 vault) → ③ PATH 에서 찾은 `claude`·`codex` CLI →
+  ④ 둘 다. ③은 설치만 볼 뿐 로그인은 모른다 — 정확히 하려면 ①이나 ②에 적는다.
+  vault 는 git 으로 장비 사이를 오가므로 감지 결과는 `config.yaml` 에 기록하지 않는다.
+  MCP `vault_info` 의 `agents_source` 가 어느 단계에서 정해졌는지 알려준다.
+- 허용 밖의 agent 는 등록·수정·가져가기에서 거부한다. `auto` 는 "허용된
   누구든" 이다. 모델명은 결과에 함께 돌려줄 뿐 이 도구가 실행하지 않는다.
 - `agent` 를 지정하면 `executor: agent` 가 된다. 실행 주체를 정한 일은 에이전트
   기록이다. 사람 작업으로 되돌리려면 `agent` 를 비운다.
