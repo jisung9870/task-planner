@@ -54,6 +54,98 @@ type Config struct {
 	Views []View `yaml:"views,omitempty"`
 
 	Git GitConfig `yaml:"git"`
+
+	// Agents is the one table both a plain session and 나루 read to decide who
+	// may take a task and which model a tier means.
+	Agents AgentsConfig `yaml:"agents"`
+}
+
+// AgentsConfig lists the agents a task may name and the model each tier maps
+// to per agent. The tool never runs a model; it hands the name back.
+type AgentsConfig struct {
+	Allowed []domain.Agent                          `yaml:"allowed,omitempty"`
+	Models  map[domain.Agent]map[domain.Tier]string `yaml:"models,omitempty"`
+}
+
+// Allows reports whether a task may name this agent. auto is always allowed:
+// it means "any of the allowed ones".
+func (a AgentsConfig) Allows(name domain.Agent) bool {
+	if name == "" || name == domain.AgentAuto {
+		return true
+	}
+	for _, x := range a.Allowed {
+		if x == name {
+			return true
+		}
+	}
+	return false
+}
+
+// Model resolves the concrete model for an agent and tier; empty when either
+// is open or the table has no entry.
+func (a AgentsConfig) Model(name domain.Agent, tier domain.Tier) string {
+	if name == "" || name == domain.AgentAuto || tier == "" {
+		return ""
+	}
+	return a.Models[name][tier]
+}
+
+func defaultAgents() AgentsConfig {
+	return AgentsConfig{
+		Allowed: []domain.Agent{"claude", "codex"},
+		Models: map[domain.Agent]map[domain.Tier]string{
+			"claude": {domain.TierFast: "haiku", domain.TierStandard: "sonnet", domain.TierDeep: "opus"},
+			"codex":  {domain.TierFast: "gpt-6-luna", domain.TierStandard: "gpt-6-sol", domain.TierDeep: "gpt-6-astra"},
+		},
+	}
+}
+
+// normalize validates the agents table. A config that lists the same agent
+// twice or a bad tier would make the 허용 check silently disagree with what
+// the file says, so it is a load error.
+func (a *AgentsConfig) normalize() error {
+	def := defaultAgents()
+	if a.Allowed == nil {
+		a.Allowed = def.Allowed
+	}
+	seen := map[domain.Agent]bool{}
+	for i, name := range a.Allowed {
+		n, err := domain.ParseAgent(string(name))
+		if err != nil {
+			return err
+		}
+		if n == "" || n == domain.AgentAuto {
+			return fmt.Errorf("agents.allowed 에 %q 는 넣을 수 없음", name)
+		}
+		if seen[n] {
+			return fmt.Errorf("agents.allowed 중복: %s", n)
+		}
+		seen[n] = true
+		a.Allowed[i] = n
+	}
+	if a.Models == nil {
+		a.Models = map[domain.Agent]map[domain.Tier]string{}
+	}
+	for name, tiers := range a.Models {
+		for tier := range tiers {
+			if _, err := domain.ParseTier(string(tier)); err != nil || tier == "" {
+				return fmt.Errorf("agents.models.%s: %w", name, err)
+			}
+		}
+	}
+	// A partial table keeps the defaults for tiers it does not mention, so
+	// overriding one model does not erase the rest.
+	for name, tiers := range def.Models {
+		if a.Models[name] == nil {
+			a.Models[name] = map[domain.Tier]string{}
+		}
+		for tier, model := range tiers {
+			if _, ok := a.Models[name][tier]; !ok {
+				a.Models[name][tier] = model
+			}
+		}
+	}
+	return nil
 }
 
 // View is one saved query. A list rather than a map: the picker numbers them,
@@ -90,7 +182,8 @@ func Default(vault string) *Config {
 			{Name: "보류", Query: "is:blocked"},
 			{Name: "날짜 없음", Query: "is:open is:unscheduled"},
 		},
-		Git: GitConfig{Remote: "origin"},
+		Git:    GitConfig{Remote: "origin"},
+		Agents: defaultAgents(),
 	}
 }
 
@@ -125,6 +218,9 @@ func Load(vault string) (*Config, error) {
 		return nil, fmt.Errorf("%s 파싱 실패: %w", path, err)
 	}
 	cfg.Vault = vault
+	if err := cfg.Agents.normalize(); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
 	if cfg.WIPLimit < 0 {
 		cfg.WIPLimit = 0
 	}
