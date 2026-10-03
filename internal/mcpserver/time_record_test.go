@@ -30,3 +30,18 @@ func TestRetiredFieldsWarnButSave(t *testing.T) {
 		t.Fatalf("scheduled alone warned: %v", out["warnings"])
 	}
 }
+
+// since backfills the start on done and is refused elsewhere.
+func TestStatusDoneSince(t *testing.T) {
+	cs, svc := newTestSession(t) // now = 2026-09-12 09:00
+	out := call(t, cs, "task_add", map[string]any{"title": "보고서 정리", "executor": "agent"})
+	id := out["task"].(map[string]any)["id"].(string)
+	if msg := callErr(t, cs, "task_status", map[string]any{"ref": id, "status": "doing", "since": "08:00"}); !strings.Contains(msg, "done") {
+		t.Fatalf("since on doing: %s", msg)
+	}
+	call(t, cs, "task_status", map[string]any{"ref": id, "status": "done", "since": "07:30"})
+	got, _ := svc.Load(id)
+	if got.Actual.String() != "1h30m" || !strings.Contains(got.Body, "(착수 소급 2026-09-12 07:30)") {
+		t.Fatalf("actual=%s body=%q", got.Actual, got.Body)
+	}
+}
