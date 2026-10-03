@@ -40,7 +40,7 @@ func (s *Service) WriteWeekReport(ref domain.Date) (string, error) {
 
 // TimeSummary aggregates tracked effort for a period. Zero dates mean "all".
 func (s *Service) TimeSummary(from, to domain.Date) []query.ProjectTime {
-	return query.TimeSummary(s.All(), from, to, s.now())
+	return query.TimeSummary(s.All(), from, to, s.now(), s.Cfg.SessionCap)
 }
 
 // Running returns the task currently being timed, if any.

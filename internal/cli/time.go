@@ -43,7 +43,7 @@ func newTimeCmd() *cobra.Command {
 				if running := svc.Running(); running != nil {
 					fmt.Fprintf(out, "진행중  %s %s  %s 경과\n\n",
 						running.ShortID(), running.Title,
-						running.ElapsedActual(svc.Now()).String())
+						running.ElapsedLabel(svc.Now(), svc.Cfg.SessionCap))
 				}
 				rows := svc.TimeSummary(from, to)
 				if len(rows) == 0 {

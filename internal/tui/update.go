@@ -342,7 +342,7 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if t := m.runningTask(); t != nil {
 				m.quitArmed = true
 				m.setStatus("%s 진행중 (%s) — q 를 한 번 더 누르면 타이머를 켠 채 종료, d/u 로 멈춤",
-					t.ShortID(), t.ElapsedActual(m.svc.Now()))
+					t.ShortID(), t.ElapsedLabel(m.svc.Now(), m.svc.Cfg.SessionCap))
 				return m, nil
 			}
 		}

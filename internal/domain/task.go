@@ -158,13 +158,39 @@ func (t *Task) DueSoon(today Date, n int) bool {
 	return d >= 0 && d <= n
 }
 
-// ElapsedActual is Actual plus the currently running session, if any.
-func (t *Task) ElapsedActual(now time.Time) Duration {
-	total := t.Actual
-	if t.StartedAt != nil {
-		total += Duration(now.Sub(*t.StartedAt))
+// RunningSession is the current 진행중 session bounded the way a transition
+// records it: never negative, never past cap (zero cap means no bound). over
+// reports that the cap cut it - a timer left running for days. Every reader of
+// a live total goes through here so a screen never shows a number the next
+// save will not keep.
+func (t *Task) RunningSession(now time.Time, cap Duration) (d Duration, over bool) {
+	if t.StartedAt == nil {
+		return 0, false
 	}
-	return total
+	d = Duration(now.Sub(*t.StartedAt))
+	if d < 0 {
+		d = 0
+	}
+	if cap > 0 && d > cap {
+		return cap, true
+	}
+	return d, false
+}
+
+// ElapsedActual is Actual plus the running session, bounded by cap.
+func (t *Task) ElapsedActual(now time.Time, cap Duration) Duration {
+	d, _ := t.RunningSession(now, cap)
+	return t.Actual + d
+}
+
+// ElapsedLabel is ElapsedActual for display, marked when the cap cut the
+// running session so an abandoned timer stands out instead of hiding.
+func (t *Task) ElapsedLabel(now time.Time, cap Duration) string {
+	label := t.ElapsedActual(now, cap).String()
+	if _, over := t.RunningSession(now, cap); over {
+		label += " (상한)"
+	}
+	return label
 }
 
 // SpanStart and SpanEnd bound the 진행 기간: scheduled 는 착수일, due 는 마감일

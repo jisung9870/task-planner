@@ -204,7 +204,7 @@ func TestElapsedActualIncludesRunningSession(t *testing.T) {
 	start := time.Date(2026, 9, 12, 9, 0, 0, 0, time.Local)
 	task := &Task{ID: "T-1", Title: "x", Status: StatusTodo, Actual: Duration(time.Hour)}
 	task.Transition(StatusDoing, start, nil)
-	if got := task.ElapsedActual(start.Add(30 * time.Minute)).String(); got != "1h30m" {
+	if got := task.ElapsedActual(start.Add(30 * time.Minute), 0).String(); got != "1h30m" {
 		t.Fatalf("elapsed = %s", got)
 	}
 }
@@ -319,5 +319,41 @@ func TestPreviewReadsLikeAListRow(t *testing.T) {
 	bare := &Task{ID: "T-20260912-0001", Title: "주간보고", Status: StatusDoing}
 	if got := bare.Preview(today); got != "● #1 주간보고" {
 		t.Fatalf("Preview = %q", got)
+	}
+}
+
+// A live total is bounded the way the next save records it: #156 left running
+// from 9/29 read 88h48m on screen and saved 8h.
+func TestElapsedActualCapsTheRunningSession(t *testing.T) {
+	start := time.Date(2026, 9, 29, 9, 0, 0, 0, time.Local)
+	now := start.Add(88*time.Hour + 48*time.Minute)
+	task := &Task{ID: "T-1", Title: "x", Status: StatusTodo, Actual: Duration(time.Hour)}
+	task.StartedAt = &start
+	task.Status = StatusDoing
+	cap := Duration(8 * time.Hour)
+
+	if d, over := task.RunningSession(now, cap); d != cap || !over {
+		t.Fatalf("session = %s over=%v", d, over)
+	}
+	live := task.ElapsedActual(now, cap)
+	if live.String() != "9h" {
+		t.Fatalf("live = %s", live)
+	}
+	if got := task.ElapsedLabel(now, cap); got != "9h (상한)" {
+		t.Fatalf("label = %q", got)
+	}
+	if got := task.ElapsedActual(now, 0).String(); got != "89h48m" {
+		t.Fatalf("no cap = %s", got)
+	}
+	if err := task.Transition(StatusTodo, now, &TransitionOpts{SessionCap: cap}); err != nil {
+		t.Fatal(err)
+	}
+	if task.Actual != live {
+		t.Fatalf("saved %s, screen showed %s", task.Actual, live)
+	}
+	short := &Task{ID: "T-2", Title: "y", Status: StatusDoing}
+	short.StartedAt = &start
+	if got := short.ElapsedLabel(start.Add(time.Hour), cap); got != "1h" {
+		t.Fatalf("under the cap = %q", got)
 	}
 }

@@ -32,13 +32,16 @@ func (p ProjectTime) Ratio() float64 {
 // Membership is by completion date for finished work and by "currently running
 // or already accumulated" for open work, which is what makes the numbers
 // answer "이번 주에 어디에 시간을 썼나".
-func TimeSummary(all []*domain.Task, from, to domain.Date, now time.Time) []ProjectTime {
+//
+// sessionCap bounds a running session as the next save will (config
+// session_cap); a timer forgotten for days must not count as days of work.
+func TimeSummary(all []*domain.Task, from, to domain.Date, now time.Time, sessionCap domain.Duration) []ProjectTime {
 	byslug := map[string]*ProjectTime{}
 	for _, t := range all {
 		if !inPeriod(t, from, to) {
 			continue
 		}
-		elapsed := t.ElapsedActual(now)
+		elapsed := t.ElapsedActual(now, sessionCap)
 		if elapsed == 0 && t.Estimate == 0 {
 			continue
 		}

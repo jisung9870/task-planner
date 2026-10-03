@@ -370,7 +370,7 @@ func (m *Model) statsLine() string {
 	var parts []string
 	if t := m.runningTask(); t != nil {
 		parts = append(parts, styDoing.Render(fmt.Sprintf("▶ %s %s %s",
-			t.ShortID(), truncate(t.Title, 20), t.ElapsedActual(m.svc.Now()))))
+			t.ShortID(), truncate(t.Title, 20), t.ElapsedLabel(m.svc.Now(), m.svc.Cfg.SessionCap))))
 	}
 	if sum.DueToday > 0 {
 		parts = append(parts, styBlocked.Render(fmt.Sprintf("오늘마감 %d", sum.DueToday)))
@@ -572,7 +572,7 @@ func (m *Model) renderTaskRow(i int, t *domain.Task, today domain.Date) string {
 	}
 	line := body
 	if t.Status == domain.StatusDoing && t.StartedAt != nil {
-		meta = append(meta, "⏱"+t.ElapsedActual(m.svc.Now()).String())
+		meta = append(meta, "⏱"+t.ElapsedLabel(m.svc.Now(), m.svc.Cfg.SessionCap))
 	} else if !t.Actual.IsZero() {
 		meta = append(meta, "⏱"+t.Actual.String())
 	}
@@ -758,7 +758,7 @@ func (m *Model) card(t *domain.Task, day domain.Date, width int, selected bool, 
 		meta = append(meta, string(t.Priority))
 	}
 	if t.Status == domain.StatusDoing && t.StartedAt != nil {
-		meta = append(meta, "⏱"+t.ElapsedActual(m.svc.Now()).String())
+		meta = append(meta, "⏱"+t.ElapsedLabel(m.svc.Now(), m.svc.Cfg.SessionCap))
 	}
 	if t.Recur != "" {
 		meta = append(meta, "↻")
@@ -1061,7 +1061,7 @@ func (m *Model) detailPane() string {
 	full := d.task
 	var b strings.Builder
 	fmt.Fprintf(&b, "  %s  %s\n", styTitle.Render(full.ID), full.Title)
-	fmt.Fprintf(&b, "  %s\n", styMuted.Render(detailMeta(full)))
+	fmt.Fprintf(&b, "  %s\n", styMuted.Render(detailMeta(full, m.svc.Now(), m.svc.Cfg.SessionCap)))
 	if line := detailAgent(full, m.svc.ModelFor(full)); line != "" {
 		fmt.Fprintf(&b, "  %s\n", styMuted.Render(line))
 	}
@@ -1154,7 +1154,7 @@ func detailAgent(t *domain.Task, model string) string {
 	return strings.Join(parts, "  ·  ")
 }
 
-func detailMeta(t *domain.Task) string {
+func detailMeta(t *domain.Task, now time.Time, sessionCap domain.Duration) string {
 	var parts []string
 	parts = append(parts, "상태 "+t.Status.Label())
 	if t.Project != "" {
@@ -1178,7 +1178,7 @@ func detailMeta(t *domain.Task) string {
 		parts = append(parts, "예상 "+t.Estimate.String())
 	}
 	if !t.Actual.IsZero() || t.StartedAt != nil {
-		parts = append(parts, "실소요 "+t.ElapsedActual(time.Now()).String())
+		parts = append(parts, "실소요 "+t.ElapsedLabel(now, sessionCap))
 	}
 	if t.Recur != "" {
 		parts = append(parts, "반복 "+t.Recur)

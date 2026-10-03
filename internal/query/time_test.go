@@ -25,7 +25,7 @@ func TestTimeSummaryAggregatesPerProject(t *testing.T) {
 		timed("b", "infra", "1h", "30m", "2026-09-11"),
 		timed("c", "", "", "45m", "2026-09-11"),
 	}
-	rows := TimeSummary(all, domain.Date{}, domain.Date{}, noon)
+	rows := TimeSummary(all, domain.Date{}, domain.Date{}, noon, 0)
 	if len(rows) != 2 {
 		t.Fatalf("rows = %+v", rows)
 	}
@@ -55,7 +55,7 @@ func TestTimeSummaryRespectsPeriod(t *testing.T) {
 	}
 	from, _ := domain.ParseDate("2026-09-07")
 	to, _ := domain.ParseDate("2026-09-13")
-	rows := TimeSummary(all, from, to, noon)
+	rows := TimeSummary(all, from, to, noon, 0)
 	if len(rows) != 1 || rows[0].Tasks != 1 {
 		t.Fatalf("rows = %+v", rows)
 	}
@@ -71,7 +71,7 @@ func TestTimeSummaryIncludesRunningSession(t *testing.T) {
 	started := noon.Add(-90 * time.Minute)
 	running.StartedAt = &started
 
-	rows := TimeSummary([]*domain.Task{running}, domain.Date{}, domain.Date{}, noon)
+	rows := TimeSummary([]*domain.Task{running}, domain.Date{}, domain.Date{}, noon, 0)
 	if len(rows) != 1 || rows[0].Actual.String() != "1h30m" {
 		t.Fatalf("rows = %+v", rows)
 	}
@@ -80,7 +80,7 @@ func TestTimeSummaryIncludesRunningSession(t *testing.T) {
 // Tasks with neither estimate nor tracked time are noise in an effort report.
 func TestTimeSummarySkipsUntrackedTasks(t *testing.T) {
 	all := []*domain.Task{timed("none", "infra", "", "", "2026-09-10")}
-	if rows := TimeSummary(all, domain.Date{}, domain.Date{}, noon); len(rows) != 0 {
+	if rows := TimeSummary(all, domain.Date{}, domain.Date{}, noon, 0); len(rows) != 0 {
 		t.Fatalf("rows = %+v", rows)
 	}
 }
@@ -91,7 +91,7 @@ func TestRatioUsesEstimatedTasksOnly(t *testing.T) {
 		timed("a", "infra", "2h", "2h", "2026-09-10"),
 		timed("b", "infra", "", "5h", "2026-09-10"),
 	}
-	rows := TimeSummary(all, domain.Date{}, domain.Date{}, noon)
+	rows := TimeSummary(all, domain.Date{}, domain.Date{}, noon, 0)
 	if rows[0].Estimated != 1 {
 		t.Fatalf("estimated = %d", rows[0].Estimated)
 	}
@@ -120,19 +120,31 @@ func TestTimeSummaryRatioMatchesPrintedActual(t *testing.T) {
 	started := noon.Add(-20 * time.Second)
 	running.StartedAt = &started
 
-	first := TimeSummary([]*domain.Task{running}, domain.Date{}, domain.Date{}, noon)
-	later := TimeSummary([]*domain.Task{running}, domain.Date{}, domain.Date{}, noon.Add(5*time.Second))
+	first := TimeSummary([]*domain.Task{running}, domain.Date{}, domain.Date{}, noon, 0)
+	later := TimeSummary([]*domain.Task{running}, domain.Date{}, domain.Date{}, noon.Add(5*time.Second), 0)
 	if len(first) != 1 || first[0].Tasks != 1 {
 		t.Fatalf("a running task with an estimate must still count: %+v", first)
 	}
 	if first[0].Actual != 0 || first[0].Ratio() != 0 || later[0].Ratio() != 0 {
 		t.Fatalf("20s reads 0m, so the ratio must be 0: %+v %v %v", first[0], first[0].Ratio(), later[0].Ratio())
 	}
-	twoMin := TimeSummary([]*domain.Task{running}, domain.Date{}, domain.Date{}, noon.Add(100*time.Second))
+	twoMin := TimeSummary([]*domain.Task{running}, domain.Date{}, domain.Date{}, noon.Add(100*time.Second), 0)
 	if got := twoMin[0].Actual.String(); got != "2m" {
 		t.Fatalf("actual = %s", got)
 	}
 	if got, want := twoMin[0].Ratio(), 2.0/60; got != want {
 		t.Fatalf("ratio = %v, want %v", got, want)
+	}
+}
+
+func TestTimeSummaryCapsAForgottenTimer(t *testing.T) {
+	running := timed("r", "sg", "", "", "")
+	running.Status = domain.StatusDoing
+	running.Updated, _ = domain.ParseDate("2026-09-12")
+	started := noon.Add(-88*time.Hour - 48*time.Minute)
+	running.StartedAt = &started
+	rows := TimeSummary([]*domain.Task{running}, domain.Date{}, domain.Date{}, noon, domain.Duration(8*time.Hour))
+	if got := rows[0].Actual.String(); got != "8h" {
+		t.Fatalf("actual = %s, want the 8h a save would keep", got)
 	}
 }

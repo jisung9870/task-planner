@@ -103,14 +103,7 @@ func (t *Task) applyTimer(from, to Status, at time.Time, cap Duration) bool {
 		t.StartedAt = &started
 		return false
 	case from == StatusDoing && to != StatusDoing && t.StartedAt != nil:
-		elapsed := Duration(at.Sub(*t.StartedAt))
-		if elapsed < 0 {
-			elapsed = 0
-		}
-		capped := false
-		if cap > 0 && elapsed > cap {
-			elapsed, capped = cap, true
-		}
+		elapsed, capped := t.RunningSession(at, cap)
 		t.Actual += elapsed
 		t.lastSession = elapsed
 		t.StartedAt = nil
