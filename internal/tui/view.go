@@ -362,8 +362,8 @@ func (m *Model) tabs() string {
 	return line
 }
 
-// statsLine is the morning briefing: what is due, what slipped, what is in
-// flight, what has been stuck. Zero-valued signals are omitted - a row of
+// statsLine is the morning briefing: what is in flight, what has been stuck,
+// what has sat or run past stale_days. Zero-valued signals are omitted - a row of
 // zeros is noise, and the point is that anything printed here needs a look.
 func (m *Model) statsLine() string {
 	sum := m.summary
@@ -371,12 +371,6 @@ func (m *Model) statsLine() string {
 	if t := m.runningTask(); t != nil {
 		parts = append(parts, styDoing.Render(fmt.Sprintf("▶ %s %s %s",
 			t.ShortID(), truncate(t.Title, 20), t.ElapsedLabel(m.svc.Now(), m.svc.Cfg.SessionCap))))
-	}
-	if sum.DueToday > 0 {
-		parts = append(parts, styBlocked.Render(fmt.Sprintf("오늘마감 %d", sum.DueToday)))
-	}
-	if sum.Overdue > 0 {
-		parts = append(parts, styDanger.Render(fmt.Sprintf("마감초과 %d", sum.Overdue)))
 	}
 	parts = append(parts, m.wipNote())
 	if note := m.loadNote(); note != "" {
@@ -393,8 +387,8 @@ func (m *Model) statsLine() string {
 			parts = append(parts, styBlocked.Render(label))
 		}
 	}
-	if sum.Carried > 0 {
-		parts = append(parts, styMuted.Render(fmt.Sprintf("이월 %d", sum.Carried)))
+	if sum.Stale > 0 {
+		parts = append(parts, styBlocked.Render(fmt.Sprintf("멈춤 %d", sum.Stale)))
 	}
 	return " " + strings.Join(parts, styMuted.Render("  ·  "))
 }
@@ -564,12 +558,6 @@ func (m *Model) renderTaskRow(i int, t *domain.Task, today domain.Date) string {
 	if t.Agent != "" || t.ClaimedBy != "" {
 		meta = append(meta, t.AgentBadge())
 	}
-	if !t.Estimate.IsZero() {
-		meta = append(meta, "~"+t.Estimate.String())
-	}
-	if t.HasSpan() {
-		meta = append(meta, t.SpanLabelShort())
-	}
 	line := body
 	if t.Status == domain.StatusDoing && t.StartedAt != nil {
 		meta = append(meta, "⏱"+t.ElapsedLabel(m.svc.Now(), m.svc.Cfg.SessionCap))
@@ -579,14 +567,11 @@ func (m *Model) renderTaskRow(i int, t *domain.Task, today domain.Date) string {
 	if len(meta) > 0 {
 		line += "  " + styMuted.Render(strings.Join(meta, " · "))
 	}
-	if note := m.dueNote(t, today, !t.HasSpan()); note != "" {
+	if note := m.timeNote(t, today); note != "" {
 		line += "  " + note
 	}
 	if t.Recur != "" && t.IsOpen() {
 		line += "  " + styMuted.Render("↻")
-	}
-	if n := t.RolloverCount; n >= m.svc.Cfg.RolloverWarnAt && t.IsOpen() {
-		line += "  " + styBlocked.Render(fmt.Sprintf("↻%d", n))
 	}
 	if t.Status == domain.StatusBlocked {
 		line += "  " + styBlocked.Render("← "+m.blockNote(t, today))
@@ -615,24 +600,28 @@ func (m *Model) blockNote(t *domain.Task, today domain.Date) string {
 	return reason
 }
 
-// dueNote flags the deadline. far decides whether a deadline still comfortably
-// ahead is printed at all - a row that already shows the 기간 has said it once.
-func (m *Model) dueNote(t *domain.Task, today domain.Date, far bool) string {
-	if t.Due.IsZero() || !t.IsOpen() {
-		return ""
-	}
-	d := t.Due.DaysUntil(today)
+// timeNote is the row's one time fact. Past stale_days it is a warning - the
+// signal that replaced the rollover count; short of it, a running task still
+// says how many days it has crossed, and a task not yet surfaced says when.
+func (m *Model) timeNote(t *domain.Task, today domain.Date) string {
+	stale := m.svc.Cfg.StaleDays
 	switch {
-	case d < 0:
-		return styDanger.Render(fmt.Sprintf("마감 %d일 초과", -d))
-	case d == 0:
-		return styDanger.Render("오늘 마감")
-	case d <= m.svc.Cfg.DueSoonDays:
-		return styBlocked.Render(fmt.Sprintf("D-%d", d))
-	case !far:
-		return ""
+	case t.Status == domain.StatusDoing:
+		d := t.DoingDays(today)
+		switch {
+		case d >= stale:
+			return styBlocked.Render(fmt.Sprintf("진행 %d일째", d+1))
+		case d > 0:
+			return styMuted.Render(fmt.Sprintf("진행 %d일째", d+1))
+		}
+	case t.Status == domain.StatusTodo && t.Scheduled.After(today):
+		return styMuted.Render("꺼냄 " + t.Scheduled.Time().Format("01-02"))
+	case t.Status == domain.StatusTodo:
+		if d := t.WaitingDays(today); d >= stale {
+			return styBlocked.Render(fmt.Sprintf("꺼낸 지 %d일", d))
+		}
 	}
-	return styMuted.Render("~" + t.Due.String())
+	return ""
 }
 
 // board renders the kanban lanes side by side.
@@ -666,7 +655,7 @@ func (m *Model) boardStacked(width, avail int, today domain.Date) string {
 		b.WriteString(styGroup.Render(fmt.Sprintf("▾ %s (%d)", st.Label(), len(m.cols[i]))) + "\n")
 		y++
 		for r, t := range m.cols[i] {
-			b.WriteString(m.card(t, domain.Date{}, width, i == m.colCursor && r == m.rowCursor, today) + "\n")
+			b.WriteString(m.card(t, width, i == m.colCursor && r == m.rowCursor, today) + "\n")
 			// fitHeight clips the text that runs past the budget but cannot
 			// clip m.hits, so a card recorded below the fold would sit under
 			// the divider or the detail pane and steal their clicks. A card is
@@ -711,7 +700,7 @@ func (m *Model) boardColumn(idx int, st domain.Status, width, maxCards int, toda
 	}
 	for r := start; r < end; r++ {
 		selected := idx == m.colCursor && r == m.rowCursor
-		b.WriteString(m.card(cards[r], domain.Date{}, width, selected, today) + "\n")
+		b.WriteString(m.card(cards[r], width, selected, today) + "\n")
 		m.hitCard(y, x0, width, idx, r)
 		y += 2
 	}
@@ -721,36 +710,19 @@ func (m *Model) boardColumn(idx int, st domain.Status, width, maxCards int, toda
 	return lipgloss.NewStyle().Width(width).MarginRight(2).Render(b.String())
 }
 
-// card is the two-line cell used on the board and the week grid.
-//
-// day is the column's date on the Week grid and the zero Date on the Board.
-// A task whose 진행 기간 covers several days draws on each of them; every day
-// after the first is a continuation cell, marked so the grid reads as one bar
-// rather than as five separate tasks.
-func (m *Model) card(t *domain.Task, day domain.Date, width int, selected bool, today domain.Date) string {
+// card is the two-line cell used on the board and the week grid. On the Week
+// grid a task sits on every day it was worked, so the status glyph is what
+// tells "끝낸 날" from "하던 날".
+func (m *Model) card(t *domain.Task, width int, selected bool, today domain.Date) string {
 	marker := selMark(selected, m.marked[t.ID])
-	cont := !day.IsZero() && t.MultiDay() && day.After(t.SpanStart())
-	title := t.Title
-	if cont {
-		title = "╌ " + title
-	}
-	title = truncate(title, width-4)
+	title := truncate(t.Status.Glyph()+" "+t.Title, width-4)
 	head := marker + title
-	switch {
-	case selected:
+	if selected {
 		head = marker + stySelected.Render(title)
-	case cont:
-		head = marker + styMuted.Render(title)
 	}
 
 	var meta []string
 	meta = append(meta, t.ShortID())
-	if !day.IsZero() && t.MultiDay() {
-		// How far into the period this day is, and how much is left. On a
-		// narrow column this is the first thing to survive truncation - it is
-		// what turns repeated cards into one bar.
-		meta = append(meta, fmt.Sprintf("%d/%d일", t.DayIndex(day), t.SpanDays()))
-	}
 	if t.Project != "" {
 		meta = append(meta, t.Project)
 	}
@@ -763,13 +735,10 @@ func (m *Model) card(t *domain.Task, day domain.Date, width int, selected bool, 
 	if t.Recur != "" {
 		meta = append(meta, "↻")
 	}
-	if n := t.RolloverCount; n >= m.svc.Cfg.RolloverWarnAt {
-		meta = append(meta, fmt.Sprintf("↻%d", n))
-	}
 	sub := "    " + truncate(strings.Join(meta, " · "), width-6)
 	line := styMuted.Render(sub)
-	if t.Overdue(today) {
-		line = styDanger.Render(sub)
+	if t.Stale(today, m.svc.Cfg.StaleDays) {
+		line = styBlocked.Render(sub)
 	}
 	return head + "\n" + line
 }
@@ -798,8 +767,8 @@ func truncate(s string, w int) string {
 	return ansi.Truncate(s, w, "…")
 }
 
-// weekGrid renders 요일 7컬럼 + 하단 미배정 lane. Answers "이번 주 뭐가 어디
-// 배치돼 있나" with an actual time axis - the grouped list could not.
+// weekGrid renders 요일 7컬럼 + 하단 백로그 lane. Answers "이번 주 언제 뭘
+// 했고 뭐가 꺼내질 예정인가" with an actual time axis.
 func (m *Model) weekGrid(avail int) string {
 	width := m.contentWidth()
 	colW := gridColWidth(width, 7)
@@ -808,7 +777,7 @@ func (m *Model) weekGrid(avail int) string {
 		return m.weekStacked(width, avail, today)
 	}
 
-	// The 미배정 lane takes its share off the top of the budget.
+	// The backlog lane takes its share off the top of the budget.
 	lane := m.cols[weekLaneUnassigned]
 	laneMax := 3
 	laneH := 0
@@ -866,7 +835,7 @@ func (m *Model) weekColumn(idx, width, maxCards int, today domain.Date, x0 int) 
 		y++
 	}
 	for r := start; r < end; r++ {
-		b.WriteString(m.card(cards[r], d, width, idx == m.colCursor && r == m.rowCursor, today) + "\n")
+		b.WriteString(m.card(cards[r], width, idx == m.colCursor && r == m.rowCursor, today) + "\n")
 		m.hitCard(y, x0, width, idx, r)
 		y += 2
 	}
@@ -912,14 +881,14 @@ func compactHours(d domain.Duration) string {
 	return strings.TrimSuffix(s, ".0") + "h"
 }
 
-// weekLane renders the 미배정 strip: work that belongs to the week but has no
-// day yet. `]` pulls a task onto today.
+// weekLane renders the backlog strip: 대기중 work with no 꺼낼 날. `]` pulls
+// a task onto today.
 func (m *Model) weekLane(lane []*domain.Task, width, laneMax, y, avail int) string {
 	today := m.svc.Today()
 	var b strings.Builder
-	head := fmt.Sprintf("미배정 (%d)", len(lane))
+	head := fmt.Sprintf("백로그 (%d)", len(lane))
 	if m.colCursor == weekLaneUnassigned {
-		b.WriteString(styTabActive.Render("▾ "+head) + styMuted.Render("   ] 로 오늘에 배정") + "\n")
+		b.WriteString(styTabActive.Render("▾ "+head) + styMuted.Render("   ] 로 오늘 꺼냄") + "\n")
 	} else {
 		b.WriteString(styGroup.Render("▾ "+head) + "\n")
 	}
@@ -941,7 +910,7 @@ func (m *Model) weekLane(lane []*domain.Task, width, laneMax, y, avail int) stri
 		if t.Project != "" {
 			line += "  " + styMuted.Render(t.Project)
 		}
-		if note := m.dueNote(t, today, true); note != "" {
+		if note := m.timeNote(t, today); note != "" {
 			line += "  " + note
 		}
 		b.WriteString("  " + cursor + truncate(line, width-6) + "\n")
@@ -967,7 +936,7 @@ func (m *Model) weekStacked(width, avail int, today domain.Date) string {
 		b.WriteString(styGroup.Render(fmt.Sprintf("%s%s %s (%d)", mark, d.WeekdayKO(), d.Time().Format("01-02"), len(m.cols[i]))) + "\n")
 		y++
 		for r, t := range m.cols[i] {
-			b.WriteString(m.card(t, d, width, i == m.colCursor && r == m.rowCursor, today) + "\n")
+			b.WriteString(m.card(t, width, i == m.colCursor && r == m.rowCursor, today) + "\n")
 			if y-bodyTop+2 <= avail {
 				m.hitCard(y, 0, width, i, r)
 			}
@@ -986,14 +955,11 @@ func (m *Model) renderProjRow(i int, r row) string {
 	line := fmt.Sprintf("%s %s %s 열림 %-3d 진행 %-3d 완료 %-3d",
 		pad(query.ProjectLabel(c.Slug), 16), pad(projStatusMark(c), 6),
 		progressBar(c.Progress(), 5), c.Open, c.Doing, c.Done)
-	if !c.Remain.IsZero() {
-		line += "  " + styMuted.Render("남은 ~"+c.Remain.String())
-	}
 	if note := m.projDueNote(c); note != "" {
 		line += "  " + note
 	}
-	if c.Overdue > 0 {
-		line += "  " + styDanger.Render(fmt.Sprintf("마감초과 %d", c.Overdue))
+	if c.Stale > 0 {
+		line += "  " + styBlocked.Render(fmt.Sprintf("멈춤 %d", c.Stale))
 	}
 	if c.Name != "" && c.Name != c.Slug {
 		line += "  " + styMuted.Render(truncate(c.Name, 20))
@@ -1062,6 +1028,12 @@ func (m *Model) detailPane() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "  %s  %s\n", styTitle.Render(full.ID), full.Title)
 	fmt.Fprintf(&b, "  %s\n", styMuted.Render(detailMeta(full, m.svc.Now(), m.svc.Cfg.SessionCap)))
+	if line := full.WorkHistory(m.svc.Now().Location()).LeadLabel(m.svc.Now()); line != "" {
+		fmt.Fprintf(&b, "  %s\n", line)
+	}
+	if line := detailRetired(full); line != "" {
+		fmt.Fprintf(&b, "  %s\n", styMuted.Render(line))
+	}
 	if line := detailAgent(full, m.svc.ModelFor(full)); line != "" {
 		fmt.Fprintf(&b, "  %s\n", styMuted.Render(line))
 	}
@@ -1154,6 +1126,25 @@ func detailAgent(t *domain.Task, model string) string {
 	return strings.Join(parts, "  ·  ")
 }
 
+// detailRetired shows what older files still carry from before due, estimate
+// and rollover were retired. It is history, not a plan: nothing acts on it.
+func detailRetired(t *domain.Task) string {
+	var parts []string
+	if !t.Due.IsZero() {
+		parts = append(parts, "마감 "+t.Due.String())
+	}
+	if !t.Estimate.IsZero() {
+		parts = append(parts, "예상 "+t.Estimate.String())
+	}
+	if t.RolloverCount > 0 {
+		parts = append(parts, fmt.Sprintf("이월 %d회", t.RolloverCount))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "이전 값: " + strings.Join(parts, "  ·  ")
+}
+
 func detailMeta(t *domain.Task, now time.Time, sessionCap domain.Duration) string {
 	var parts []string
 	parts = append(parts, "상태 "+t.Status.Label())
@@ -1163,28 +1154,14 @@ func detailMeta(t *domain.Task, now time.Time, sessionCap domain.Duration) strin
 	if t.Priority != "" {
 		parts = append(parts, string(t.Priority))
 	}
-	if t.HasSpan() {
-		// Two dates that bound a period read better as one fact than as two.
-		parts = append(parts, "기간 "+t.SpanLabel())
-	} else {
-		if !t.Scheduled.IsZero() {
-			parts = append(parts, "예정 "+t.Scheduled.String())
-		}
-		if !t.Due.IsZero() {
-			parts = append(parts, "마감 "+t.Due.String())
-		}
-	}
-	if !t.Estimate.IsZero() {
-		parts = append(parts, "예상 "+t.Estimate.String())
+	if !t.Scheduled.IsZero() {
+		parts = append(parts, "꺼낼 날 "+t.Scheduled.String())
 	}
 	if !t.Actual.IsZero() || t.StartedAt != nil {
-		parts = append(parts, "실소요 "+t.ElapsedLabel(now, sessionCap))
+		parts = append(parts, "작업 시간 "+t.ElapsedLabel(now, sessionCap))
 	}
 	if t.Recur != "" {
 		parts = append(parts, "반복 "+t.Recur)
-	}
-	if t.RolloverCount > 0 {
-		parts = append(parts, fmt.Sprintf("이월 %d회", t.RolloverCount))
 	}
 	if len(t.Tags) > 0 {
 		parts = append(parts, "#"+strings.Join(t.Tags, " #"))

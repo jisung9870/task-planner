@@ -33,7 +33,7 @@ func padLeft(s string, w int) string {
 
 // renderList prints a task list grouped by status - the same grouping the TUI
 // shows, so switching between the two does not require re-learning the layout.
-func renderList(w io.Writer, ts []*domain.Task, today domain.Date, dueSoon int) {
+func renderList(w io.Writer, ts []*domain.Task, today domain.Date, staleDays int) {
 	if len(ts) == 0 {
 		fmt.Fprintln(w, "  (없음)")
 		return
@@ -46,13 +46,13 @@ func renderList(w io.Writer, ts []*domain.Task, today domain.Date, dueSoon int) 
 		}
 		fmt.Fprintf(w, "\n%s (%d)\n", st.Label(), len(g))
 		for _, t := range g {
-			fmt.Fprintln(w, "  "+taskLine(t, today, dueSoon))
+			fmt.Fprintln(w, "  "+taskLine(t, today, staleDays))
 		}
 	}
 }
 
 // taskLine is the one-line form used by every list output.
-func taskLine(t *domain.Task, today domain.Date, dueSoon int) string {
+func taskLine(t *domain.Task, today domain.Date, staleDays int) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s %s %s", t.Status.Glyph(), pad(t.ShortID(), 5), t.Title)
 	var meta []string
@@ -65,20 +65,17 @@ func taskLine(t *domain.Task, today domain.Date, dueSoon int) string {
 	if t.Agent != "" || t.ClaimedBy != "" {
 		meta = append(meta, t.AgentBadge())
 	}
-	if !t.Estimate.IsZero() {
-		meta = append(meta, "~"+t.Estimate.String())
-	}
 	if len(t.Tags) > 0 {
 		meta = append(meta, "#"+strings.Join(t.Tags, " #"))
 	}
 	if len(meta) > 0 {
 		fmt.Fprintf(&b, "  [%s]", strings.Join(meta, " · "))
 	}
-	if note := dueNote(t, today, dueSoon); note != "" {
-		b.WriteString("  " + note)
-	}
-	if t.RolloverCount > 0 && t.IsOpen() {
-		fmt.Fprintf(&b, "  ↻%d", t.RolloverCount)
+	if when := t.When(today); when != "" {
+		if t.Stale(today, staleDays) {
+			when = "! " + when
+		}
+		b.WriteString("  " + when)
 	}
 	if t.Status == domain.StatusBlocked {
 		reason := t.BlockedReason
@@ -91,23 +88,6 @@ func taskLine(t *domain.Task, today domain.Date, dueSoon int) string {
 		b.WriteString("  ← " + reason)
 	}
 	return b.String()
-}
-
-// dueNote turns a deadline into the short warning shown at the end of a row.
-func dueNote(t *domain.Task, today domain.Date, dueSoon int) string {
-	if t.Due.IsZero() || !t.IsOpen() {
-		return ""
-	}
-	d := t.Due.DaysUntil(today)
-	switch {
-	case d < 0:
-		return fmt.Sprintf("!! 마감 %d일 초과", -d)
-	case d == 0:
-		return "! 오늘 마감"
-	case d <= dueSoon:
-		return fmt.Sprintf("! D-%d", d)
-	}
-	return "~" + t.Due.String()
 }
 
 // loadSuffix renders a day's commitment as a header suffix, or "" when there

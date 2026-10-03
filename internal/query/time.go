@@ -7,24 +7,13 @@ import (
 	"task-planner/internal/domain"
 )
 
-// ProjectTime aggregates tracked effort for one project.
+// ProjectTime aggregates recorded work time for one project. There is no
+// estimate to compare against any more (기획서 "시간: 계획이 아니라 기록"):
+// the number answers "어디에 시간을 썼나", nothing else.
 type ProjectTime struct {
-	Slug     string
-	Tasks    int
-	Estimate domain.Duration
-	Actual   domain.Duration
-	// Estimated counts only the tasks that carried an estimate, so the ratio
-	// below is not diluted by work nobody estimated.
-	Estimated int
-}
-
-// Ratio is actual/estimate over the estimated tasks, or 0 when unknown.
-// A number above 1 means the estimates were optimistic.
-func (p ProjectTime) Ratio() float64 {
-	if p.Estimate == 0 {
-		return 0
-	}
-	return float64(p.Actual) / float64(p.Estimate)
+	Slug   string
+	Tasks  int
+	Actual domain.Duration
 }
 
 // TimeSummary aggregates effort for tasks touched within [from, to].
@@ -42,7 +31,7 @@ func TimeSummary(all []*domain.Task, from, to domain.Date, now time.Time, sessio
 			continue
 		}
 		elapsed := t.ElapsedActual(now, sessionCap)
-		if elapsed == 0 && t.Estimate == 0 {
+		if elapsed == 0 {
 			continue
 		}
 		// Sum whole minutes, the unit every output prints. Summing the running
@@ -56,10 +45,6 @@ func TimeSummary(all []*domain.Task, from, to domain.Date, now time.Time, sessio
 		}
 		p.Tasks++
 		p.Actual += actual
-		if t.Estimate > 0 {
-			p.Estimate += t.Estimate
-			p.Estimated++
-		}
 	}
 	out := make([]ProjectTime, 0, len(byslug))
 	for _, p := range byslug {
@@ -104,8 +89,6 @@ func TotalTime(ps []ProjectTime) ProjectTime {
 	for _, p := range ps {
 		total.Tasks += p.Tasks
 		total.Actual += p.Actual
-		total.Estimate += p.Estimate
-		total.Estimated += p.Estimated
 	}
 	return total
 }

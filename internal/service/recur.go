@@ -22,7 +22,7 @@ func (s *Service) spawnNextOccurrence(finished *domain.Task) (*domain.Task, erro
 	}
 	base := finished.Scheduled
 	if base.IsZero() {
-		base = finished.Due
+		base = finished.Due // a series started before due was retired
 	}
 	if base.IsZero() {
 		base = s.Today()
@@ -38,19 +38,12 @@ func (s *Service) spawnNextOccurrence(finished *domain.Task) (*domain.Task, erro
 		Priority: finished.Priority,
 		Agent:    finished.Agent,
 		Tier:     finished.Tier,
-		Estimate: finished.Estimate,
 		Tags:     finished.Tags,
 		Links:    finished.Links,
 		Recur:    finished.Recur,
 		RecurOf:  seriesRoot(finished),
 	}
 	in.Scheduled = next
-	if !finished.Due.IsZero() && !finished.Scheduled.IsZero() {
-		// Preserve the lead time between "start it" and "it is due".
-		in.Due = next.AddDays(-finished.Scheduled.DaysUntil(finished.Due))
-	} else if !finished.Due.IsZero() {
-		in.Due = next
-	}
 
 	t, err := s.Add(in)
 	if err != nil {

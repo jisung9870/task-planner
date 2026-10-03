@@ -34,17 +34,28 @@ func TestNextUpSkipsBlockedAndClosed(t *testing.T) {
 	}
 }
 
-func TestNextUpRanksUrgentFirstWithReason(t *testing.T) {
+func TestNextUpRanksPriorityFirstWithReason(t *testing.T) {
 	svc := newTestService(t)
-	svc.Add(AddInput{Title: "언젠가"})
-	urgent, _ := svc.Add(AddInput{Title: "오늘 마감", Due: svc.Today()})
+	svc.Add(AddInput{Title: "언젠가", Priority: domain.P3})
+	urgent, _ := svc.Add(AddInput{Title: "오늘 꺼낸 일", Priority: domain.P1, Scheduled: svc.Today()})
 
 	got := svc.NextUp(1)
 	if len(got) != 1 || got[0].Task.ID != urgent.ID {
 		t.Fatalf("%+v", got)
 	}
-	if !strings.Contains(got[0].Reason, "오늘 마감") {
+	if !strings.Contains(got[0].Reason, "P1") || !strings.Contains(got[0].Reason, "오늘 꺼낸 일") {
 		t.Fatalf("reason = %q", got[0].Reason)
+	}
+}
+
+// The stale signal replaced the rollover count: a task surfaced and left for
+// stale_days says it is time to split or drop it.
+func TestNextUpReasonFlagsStaleWork(t *testing.T) {
+	svc := newTestService(t)
+	old, _ := svc.Add(AddInput{Title: "꺼낸 채 둔 일", Scheduled: svc.Today().AddDays(-6)})
+	got := svc.NextUp(0)
+	if len(got) != 1 || got[0].Task.ID != old.ID || !strings.Contains(got[0].Reason, "꺼낸 지 6일") {
+		t.Fatalf("%+v", got)
 	}
 }
 

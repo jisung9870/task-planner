@@ -12,8 +12,8 @@ import (
 )
 
 // The Timeline tab is the calendar turned sideways: 한 줄에 태스크 하나, 가로축은
-// 날짜다. Week 는 "이 요일에 뭐가 있나" 를 묻고 Timeline 은 "이 일이 언제부터
-// 언제까지인가" 를 묻는다 — 같은 데이터의 다른 질문이라 뷰를 나눈다.
+// 날짜다. Week 는 "이 요일에 뭘 했나" 를 묻고 Timeline 은 "이 일을 언제 시작해
+// 언제 끝냈나" 를 묻는다 — 같은 기록의 다른 질문이라 뷰를 나눈다.
 //
 // 커서 모델은 목록 탭과 같다(m.rows/m.cursor). 그래서 상태 변경·선택·기간 이동
 // 키가 여기서도 그대로 듣는다: 새 뷰가 새 조작법을 요구하면 뷰가 아니라 앱이
@@ -33,40 +33,15 @@ const (
 	tlHeadLines = 3
 )
 
-// timelineBounds selects the dates for the active view without changing the plan.
+// timelineBounds is the first and last day the log records work on. The
+// Timeline draws only what happened: the planned 진행 기간 it used to offer
+// went with due (2026-10-03).
 func (m *Model) timelineBounds(t *domain.Task, today domain.Date) (domain.Date, domain.Date) {
-	if m.tlActual {
-		return m.tlHistory[t.ID].Bounds(today)
-	}
-	s, e := t.SpanStart(), t.SpanEnd()
-	if e.Before(s) {
-		e = s
-	}
-	return s, e
+	return m.tlHistory[t.ID].Bounds(today)
 }
 
 func (m *Model) timelineInDay(t *domain.Task, d, today domain.Date) bool {
-	if m.tlActual {
-		return m.tlHistory[t.ID].InDay(d, today)
-	}
-	return t.InSpan(d)
-}
-
-func (m *Model) toggleTimelineMode() {
-	selected := m.current()
-	m.tlActual = !m.tlActual
-	m.listOffset, m.cursor = 0, 0
-	m.reload()
-	if selected != nil {
-		m.selectID(selected.ID)
-	}
-}
-
-func (m *Model) timelineModeLabel() string {
-	if m.tlActual {
-		return "실제 작업"
-	}
-	return "예정 일정"
+	return m.tlHistory[t.ID].InDay(d, today)
 }
 
 // timelineWorkTimes shows minute precision separately from the daily axis.
@@ -117,8 +92,8 @@ func (m *Model) timelineWindow() (domain.Date, int) {
 	return start, weeks * 7
 }
 
-// reloadTimeline picks the tasks whose 진행 기간 touches the window. 날짜가 없는
-// 태스크는 그릴 자리가 없다 - 건수만 세어 알린다.
+// reloadTimeline picks the tasks whose recorded work touches the window. 기록이
+// 없는 태스크는 그릴 자리가 없다 - 건수만 세어 알린다.
 func (m *Model) reloadTimeline(today domain.Date) {
 	start, days := m.timelineWindow()
 	if m.hourlyTimeline() {
@@ -130,17 +105,13 @@ func (m *Model) reloadTimeline(today domain.Date) {
 
 	ts := m.svc.All()
 	ts = m.filterTasks(ts)
-	if m.tlActual {
-		m.tlHistory = m.svc.WorkHistories(ts)
-	}
+	m.tlHistory = m.svc.WorkHistories(ts)
 	m.tlUndated = 0
 	rows := make([]row, 0, len(ts))
 	for _, t := range ts {
 		s, e := m.timelineBounds(t, today)
 		if s.IsZero() {
-			if m.tlActual || t.IsOpen() {
-				m.tlUndated++
-			}
+			m.tlUndated++
 			continue
 		}
 		if !s.After(end) && !e.Before(start) {
@@ -208,12 +179,9 @@ func (m *Model) timelineView(avail int) string {
 	}
 
 	var b strings.Builder
-	b.WriteString(truncate(styTabActive.Render("  "+m.timelineModeLabel())+styMuted.Render(" · f 전환 · z "+m.timelineScaleLabel()), m.contentWidth()) + "\n")
-	headLines := tlHeadLines + 1
-	if m.tlActual {
-		b.WriteString(m.timelineWorkTimes())
-		headLines += 2
-	}
+	b.WriteString(truncate(styTabActive.Render("  실제 작업")+styMuted.Render(" · z "+m.timelineScaleLabel()), m.contentWidth()) + "\n")
+	headLines := tlHeadLines + 3
+	b.WriteString(m.timelineWorkTimes())
 	if m.hourlyTimeline() {
 		b.WriteString(m.hourlyScale(labelW))
 	} else {
@@ -269,10 +237,7 @@ func (m *Model) timelineFootnote() string {
 	if m.tlUndated == 0 {
 		return ""
 	}
-	if m.tlActual {
-		return "\n" + styMuted.Render(fmt.Sprintf("  실제 기록 없음 %d건 — s 시작 · d 완료", m.tlUndated))
-	}
-	return "\n" + styMuted.Render(fmt.Sprintf("  날짜 없음 %d건 — D 로 기간을 넣으면 여기에 그려집니다", m.tlUndated))
+	return "\n" + styMuted.Render(fmt.Sprintf("  실제 기록 없음 %d건 — s 시작 · d 완료", m.tlUndated))
 }
 
 // timelineScale renders the three header lines: 주 시작 날짜, 요일, 눈금.
@@ -335,8 +300,6 @@ func (m *Model) timelineRow(i int, t *domain.Task, start domain.Date, days, labe
 	switch {
 	case t.Status.Terminal():
 		sty = styMuted
-	case !m.tlActual && t.Overdue(today):
-		sty = styDanger
 	case t.Status == domain.StatusDoing:
 		sty = styDoing
 	case t.Status == domain.StatusBlocked:
@@ -344,12 +307,8 @@ func (m *Model) timelineRow(i int, t *domain.Task, start domain.Date, days, labe
 	}
 
 	end := start.AddDays(days - 1)
-	spanStart, spanEnd := m.timelineBounds(t, today)
-	continuesBefore, continuesAfter := spanStart.Before(start), spanEnd.After(end)
-	if m.tlActual {
-		continuesBefore, _ = m.tlHistory[t.ID].ContinuesAt(start, today)
-		_, continuesAfter = m.tlHistory[t.ID].ContinuesAt(end, today)
-	}
+	continuesBefore, _ := m.tlHistory[t.ID].ContinuesAt(start, today)
+	_, continuesAfter := m.tlHistory[t.ID].ContinuesAt(end, today)
 	var bar strings.Builder
 	for i := 0; i < days; i++ {
 		d := start.AddDays(i)
@@ -374,13 +333,10 @@ func (m *Model) timelineRow(i int, t *domain.Task, start domain.Date, days, labe
 	return label + " " + bar.String()
 }
 
-// timelineLabel fills the gutter: 커서·상태·번호·제목 왼쪽, 마감 경고 오른쪽.
+// timelineLabel fills the gutter: 커서·상태·번호·제목 왼쪽, 멈춤 신호 오른쪽.
 func (m *Model) timelineLabel(i int, t *domain.Task, labelW int, today domain.Date) string {
 	cursor := selMark(i == m.cursor, m.marked[t.ID])
-	note := ""
-	if !m.tlActual {
-		note = m.dueNote(t, today, false)
-	}
+	note := m.timeNote(t, today)
 	inner := labelW - lipgloss.Width(cursor)
 	if w := lipgloss.Width(note); w > 0 {
 		inner -= w + 1

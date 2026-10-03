@@ -65,12 +65,13 @@ type Task struct {
 	Created Date `yaml:"created"`
 	Updated Date `yaml:"updated"`
 
-	// Scheduled is "when do I intend to work on this", Due is "when must it be
-	// finished". Collapsing the two makes the Today view useless - see
-	// docs/product-task-planner-202609.md.
+	// Scheduled is the day the task surfaces in Today (꺼낼 날). It is not a
+	// deadline: passing it raises nothing but the stale signal below.
 	Scheduled Date `yaml:"scheduled,omitempty"`
-	Due       Date `yaml:"due,omitempty"`
-
+	// Due and Estimate are retired inputs (2026-10-03, 기획서 "시간: 계획이
+	// 아니라 기록"). Older files keep them and they round-trip untouched; the
+	// detail view shows them as 이전 값. Nothing plans or sorts by them.
+	Due      Date     `yaml:"due,omitempty"`
 	Estimate Duration `yaml:"estimate,omitempty"`
 	Actual   Duration `yaml:"actual,omitempty"`
 	// StartedAt is set while Status == doing so elapsed time survives a restart.
@@ -404,20 +405,14 @@ func (t *Task) Preview(today Date) string {
 	if t.Priority != "" {
 		meta = append(meta, string(t.Priority))
 	}
-	if !t.Estimate.IsZero() {
-		meta = append(meta, "~"+t.Estimate.String())
-	}
 	for _, tag := range t.Tags {
 		meta = append(meta, "#"+tag)
 	}
 	if len(meta) > 0 {
 		fmt.Fprintf(&b, "  [%s]", strings.Join(meta, " · "))
 	}
-	if when := t.previewWhen(today); when != "" {
+	if when := t.When(today); when != "" {
 		b.WriteString("  " + when)
-	}
-	if t.RolloverCount > 0 && t.IsOpen() {
-		fmt.Fprintf(&b, "  ↻%d", t.RolloverCount)
 	}
 	if t.Status == StatusBlocked {
 		reason := t.BlockedReason
@@ -432,24 +427,49 @@ func (t *Task) Preview(today Date) string {
 	return b.String()
 }
 
-// previewWhen picks the one date fact worth a row: a missed deadline first,
-// then the working period, then whichever single date exists.
-func (t *Task) previewWhen(today Date) string {
-	short := func(d Date) string { return d.Time().Format("01-02") }
-	if t.Overdue(today) {
-		return fmt.Sprintf("!! 마감 %d일 초과", -t.Due.DaysUntil(today))
-	}
-	if t.HasSpan() {
-		return t.SpanLabelShort()
-	}
-	if !t.Due.IsZero() {
-		if t.IsOpen() && t.Due.DaysUntil(today) == 0 {
-			return "! 오늘 마감"
+// When is the one time fact worth a row: how long it has been running, how
+// long it has sat since it surfaced, or when it will surface.
+func (t *Task) When(today Date) string {
+	switch {
+	case t.Status == StatusDoing:
+		if d := t.DoingDays(today); d > 0 {
+			return fmt.Sprintf("진행 %d일째", d+1)
 		}
-		return "~" + short(t.Due)
-	}
-	if !t.Scheduled.IsZero() {
-		return "착수 " + short(t.Scheduled)
+	case t.Status == StatusTodo && !t.Scheduled.IsZero() && t.Scheduled.After(today):
+		return "꺼냄 " + t.Scheduled.Time().Format("01-02")
+	case t.Status == StatusTodo:
+		if d := t.WaitingDays(today); d > 0 {
+			return fmt.Sprintf("꺼낸 지 %d일", d)
+		}
 	}
 	return ""
+}
+
+// WaitingDays is how long a 대기중 task has sat in Today since the day it
+// surfaced without being started - "쪼개거나 버릴 때" once it grows. Zero for
+// anything not waiting, or not yet surfaced.
+func (t *Task) WaitingDays(today Date) int {
+	if t.Status != StatusTodo || t.Scheduled.IsZero() || t.Scheduled.After(today) {
+		return 0
+	}
+	return today.DaysUntil(t.Scheduled)
+}
+
+// DoingDays is how many days the running session has crossed since it began -
+// "이 일은 너무 크다" once it grows. It reads the current session only: a pause
+// and resume restarts the count, which is the honest reading without the log.
+func (t *Task) DoingDays(today Date) int {
+	if t.Status != StatusDoing || t.StartedAt == nil {
+		return 0
+	}
+	if d := today.DaysUntil(DateOf(*t.StartedAt)); d > 0 {
+		return d
+	}
+	return 0
+}
+
+// Stale reports the signal that replaced the rollover count: surfaced and not
+// started for n days, or running for n days.
+func (t *Task) Stale(today Date, n int) bool {
+	return n > 0 && (t.WaitingDays(today) >= n || t.DoingDays(today) >= n)
 }

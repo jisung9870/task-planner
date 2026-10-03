@@ -116,12 +116,31 @@ func (s *Service) All() []*domain.Task {
 // TodayList answers "오늘 뭘 해야 하지".
 func (s *Service) TodayList() []*domain.Task { return query.Today(s.All(), s.Today()) }
 
-// WeekList answers "이번 주에 뭐가 남았지".
+// WeekList answers "이번 주에 뭘 했고 뭐가 꺼내질 예정이지".
 func (s *Service) WeekList(ref domain.Date) []*domain.Task {
 	if ref.IsZero() {
 		ref = s.Today()
 	}
-	return query.Week(s.All(), ref, s.Today())
+	ts := s.All()
+	return query.Week(ts, s.weekHistories(ts, ref), ref, s.Today())
+}
+
+// WeekDays lays a week list out by day; see query.WeekDays.
+func (s *Service) WeekDays(ts []*domain.Task, ref domain.Date) (map[domain.Date][]*domain.Task, []domain.Date) {
+	return query.WeekDays(ts, s.weekHistories(ts, ref), ref, s.Today())
+}
+
+// weekHistories reads the logs that can touch ref's week. Work finished before
+// the week began cannot have run inside it, so those files stay unread.
+func (s *Service) weekHistories(ts []*domain.Task, ref domain.Date) map[string]domain.WorkHistory {
+	start := ref.WeekStart()
+	var cand []*domain.Task
+	for _, t := range ts {
+		if t.IsOpen() || !t.Completed.Before(start) {
+			cand = append(cand, t)
+		}
+	}
+	return s.WorkHistories(cand)
 }
 
 // OpenList returns everything still needing attention.
@@ -129,7 +148,7 @@ func (s *Service) OpenList() []*domain.Task { return query.Open(s.All(), s.Today
 
 // ProjectCounts aggregates open work per project.
 func (s *Service) ProjectCounts() []query.ProjectCount {
-	return query.ProjectCounts(s.All(), s.Today())
+	return query.ProjectCounts(s.All(), s.Today(), s.Cfg.StaleDays)
 }
 
 // ProjectList returns the tasks of one project.
@@ -263,13 +282,13 @@ func (s *Service) ApplyFilter(f *query.Filter, ts []*domain.Task) []*domain.Task
 	if f.NeedsBody() {
 		var cand []*domain.Task
 		for _, t := range ts {
-			if f.MatchCheap(t, today, s.Cfg.DueSoonDays) {
+			if f.MatchCheap(t, today, s.Cfg.StaleDays) {
 				cand = append(cand, t)
 			}
 		}
 		ts = s.hydrate(cand)
 	}
-	return f.Apply(ts, today, s.Cfg.DueSoonDays)
+	return f.Apply(ts, today, s.Cfg.StaleDays)
 }
 
 // hydrate re-reads full task files for summaries that lack a body. A file that

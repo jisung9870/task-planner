@@ -13,6 +13,7 @@ func TestCompletingRecurringTaskCreatesNextOccurrence(t *testing.T) {
 	task, err := svc.Add(AddInput{
 		Title: "주간보고 작성", Project: "ops", Recur: "weekly",
 		Scheduled: sched, Estimate: mustDur(t, "30m"), Tags: []string{"routine"},
+		// Estimate is a retired field an older task may still carry.
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -32,8 +33,11 @@ func TestCompletingRecurringTaskCreatesNextOccurrence(t *testing.T) {
 	if n.Title != task.Title || n.Project != "ops" || n.Recur != "weekly" {
 		t.Fatalf("필드가 승계되지 않음: %+v", n)
 	}
-	if n.Estimate.String() != "30m" || len(n.Tags) != 1 {
-		t.Fatalf("예상·태그 승계 실패: %+v", n)
+	if len(n.Tags) != 1 {
+		t.Fatalf("태그 승계 실패: %+v", n)
+	}
+	if !n.Estimate.IsZero() {
+		t.Fatalf("폐지된 estimate 가 다음 회차로 넘어감: %s", n.Estimate)
 	}
 	if n.RecurOf != task.ID {
 		t.Fatalf("recur_of = %q, want %q", n.RecurOf, task.ID)
@@ -92,8 +96,9 @@ func TestSkipRejectsNonRecurringTask(t *testing.T) {
 	}
 }
 
-// The lead time between "start it" and "it is due" must survive the roll.
-func TestNextOccurrencePreservesDueLeadTime(t *testing.T) {
+// A series started before due was retired rolls forward on its 꺼낼 날 and
+// leaves the deadline behind.
+func TestNextOccurrenceDropsRetiredDue(t *testing.T) {
 	svc := newTestService(t)
 	sched, _ := domain.ParseDate("2026-09-12")
 	due, _ := domain.ParseDate("2026-09-15")
@@ -103,8 +108,8 @@ func TestNextOccurrencePreservesDueLeadTime(t *testing.T) {
 	if res.Next.Scheduled.String() != "2026-10-12" {
 		t.Fatalf("scheduled = %s", res.Next.Scheduled)
 	}
-	if res.Next.Due.String() != "2026-10-15" {
-		t.Fatalf("due = %s (여유 3일이 유지되어야 함)", res.Next.Due)
+	if !res.Next.Due.IsZero() {
+		t.Fatalf("due = %s, want none", res.Next.Due)
 	}
 }
 

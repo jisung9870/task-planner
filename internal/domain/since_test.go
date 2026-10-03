@@ -129,3 +129,21 @@ func TestBackfillRefusesOverlapAndOtherStates(t *testing.T) {
 		t.Errorf("lead starts at %s, want the first session", start.Format("15:04"))
 	}
 }
+
+// A task put back to 대기중 has started but is neither running nor finished;
+// its label must not count days as if the clock were still on.
+func TestLeadLabelDistinguishesPausedFromRunning(t *testing.T) {
+	task := &Task{ID: "T-1", Title: "x", Status: StatusTodo}
+	_ = task.Transition(StatusDoing, sinceNow.Add(-3*time.Hour), nil)
+	if got := task.WorkHistory(time.Local).LeadLabel(sinceNow); !strings.Contains(got, "3h째") {
+		t.Errorf("running = %q", got)
+	}
+	_ = task.Transition(StatusTodo, sinceNow.Add(-time.Hour), nil)
+	if got := task.WorkHistory(time.Local).LeadLabel(sinceNow); !strings.Contains(got, "멈춤 (완료 전)") {
+		t.Errorf("paused = %q", got)
+	}
+	_ = task.Transition(StatusDone, sinceNow, nil)
+	if got := task.WorkHistory(time.Local).LeadLabel(sinceNow); !strings.Contains(got, "→ 완료") {
+		t.Errorf("done = %q", got)
+	}
+}

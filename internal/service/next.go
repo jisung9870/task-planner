@@ -51,22 +51,19 @@ func (s *Service) reasonFor(t *domain.Task, today domain.Date) string {
 	if t.Status == domain.StatusDoing {
 		parts = append(parts, "이미 진행중")
 	}
-	switch {
-	case t.Overdue(today):
-		parts = append(parts, fmt.Sprintf("마감 %d일 초과", -t.Due.DaysUntil(today)))
-	case !t.Due.IsZero() && t.Due.Equal(today):
-		parts = append(parts, "오늘 마감")
-	case t.DueSoon(today, s.Cfg.DueSoonDays):
-		parts = append(parts, fmt.Sprintf("D-%d", t.Due.DaysUntil(today)))
-	}
 	if t.Priority != "" {
 		parts = append(parts, string(t.Priority))
 	}
-	if !t.Scheduled.IsZero() && !t.Scheduled.After(today) {
-		parts = append(parts, "착수 예정일 지남")
+	switch d := t.WaitingDays(today); {
+	case d >= s.Cfg.StaleDays:
+		parts = append(parts, fmt.Sprintf("꺼낸 지 %d일 — 쪼개거나 버릴 때", d))
+	case d > 0:
+		parts = append(parts, fmt.Sprintf("꺼낸 지 %d일", d))
+	case t.Status == domain.StatusTodo && t.Scheduled.Equal(today):
+		parts = append(parts, "오늘 꺼낸 일")
 	}
-	if t.RolloverCount >= s.Cfg.RolloverWarnAt {
-		parts = append(parts, fmt.Sprintf("%d회 이월", t.RolloverCount))
+	if d := t.DoingDays(today); d >= s.Cfg.StaleDays {
+		parts = append(parts, fmt.Sprintf("진행 %d일째 — 너무 큰 일인지", d+1))
 	}
 	if n := len(s.Blocking(t.ID)); n > 0 {
 		parts = append(parts, fmt.Sprintf("%d건이 이걸 기다림", n))

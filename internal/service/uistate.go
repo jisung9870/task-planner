@@ -12,7 +12,6 @@ const uiStateFile = "ui.json"
 
 // UIState is the handful of TUI preferences worth surviving a restart.
 type UIState struct {
-	TimelineActual bool `json:"timeline_actual,omitempty"`
 	TimelineHourly bool `json:"timeline_hourly,omitempty"`
 	// Tab is the tab index the session ended on.
 	Tab int `json:"tab"`

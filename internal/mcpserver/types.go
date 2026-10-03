@@ -21,9 +21,9 @@ type taskJSON struct {
 	Tier          string   `json:"tier,omitempty"`
 	ClaimedBy     string   `json:"claimed_by,omitempty"`
 	Priority      string   `json:"priority,omitempty"`
-	Scheduled     string   `json:"scheduled,omitempty"`
-	Due           string   `json:"due,omitempty"`
-	Estimate      string   `json:"estimate,omitempty"`
+	Scheduled     string   `json:"scheduled,omitempty" jsonschema:"꺼낼 날"`
+	Due           string   `json:"due,omitempty" jsonschema:"폐지된 필드 — 과거 파일에 남은 값"`
+	Estimate      string   `json:"estimate,omitempty" jsonschema:"폐지된 필드 — 과거 파일에 남은 값"`
 	Actual        string   `json:"actual,omitempty"`
 	Tags          []string `json:"tags,omitempty"`
 	Links         []string `json:"links,omitempty"`
@@ -31,7 +31,7 @@ type taskJSON struct {
 	BlockedBy     []string `json:"blocked_by,omitempty"`
 	RolloverCount int      `json:"rollover_count,omitempty"`
 	Recur         string   `json:"recur,omitempty"`
-	Overdue       bool     `json:"overdue,omitempty"`
+	When          string   `json:"when,omitempty" jsonschema:"진행 N일째 · 꺼낸 지 N일 · 꺼냄 MM-DD"`
 }
 
 func toTaskJSON(t *domain.Task, today domain.Date) taskJSON {
@@ -57,7 +57,7 @@ func toTaskJSON(t *domain.Task, today domain.Date) taskJSON {
 		BlockedBy:     t.BlockedBy,
 		RolloverCount: t.RolloverCount,
 		Recur:         t.Recur,
-		Overdue:       t.Overdue(today),
+		When:          t.When(today),
 	}
 }
 

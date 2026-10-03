@@ -3,25 +3,14 @@ package domain
 import "sort"
 
 // SortDefault orders a task list the way every view wants it: what is running
-// first, then what is most urgent, with a stable id tiebreak so redraws do not
-// shuffle rows.
+// first, then priority, then the day it surfaced, with a stable id tiebreak so
+// redraws do not shuffle rows. Priority and 꺼낼 날 are the only things decided
+// in advance (기획서 "시간: 계획이 아니라 기록"), so they are the only keys.
 func SortDefault(ts []*Task, today Date) {
 	sort.SliceStable(ts, func(i, j int) bool {
 		a, b := ts[i], ts[j]
 		if r := statusRank(a.Status) - statusRank(b.Status); r != 0 {
 			return r < 0
-		}
-		if a.Overdue(today) != b.Overdue(today) {
-			return a.Overdue(today)
-		}
-		if !a.Due.Equal(b.Due) {
-			if a.Due.IsZero() {
-				return false
-			}
-			if b.Due.IsZero() {
-				return true
-			}
-			return a.Due.Before(b.Due)
 		}
 		if r := a.Priority.Rank() - b.Priority.Rank(); r != 0 {
 			return r < 0

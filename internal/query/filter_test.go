@@ -190,13 +190,12 @@ func TestFilterWithoutBodyTermDoesNotNeedBody(t *testing.T) {
 }
 
 func TestProjectCountsProgressExcludesCancelled(t *testing.T) {
-	est, _ := domain.ParseDuration("2h")
 	ts := []*domain.Task{
 		{ID: "T-1", Project: "infra", Status: domain.StatusDone},
-		{ID: "T-2", Project: "infra", Status: domain.StatusTodo, Estimate: est},
+		{ID: "T-2", Project: "infra", Status: domain.StatusTodo, Scheduled: today.AddDays(-6)},
 		{ID: "T-3", Project: "infra", Status: domain.StatusCancelled},
 	}
-	counts := ProjectCounts(ts, today)
+	counts := ProjectCounts(ts, today, 5)
 	if len(counts) != 1 {
 		t.Fatalf("counts = %+v", counts)
 	}
@@ -205,7 +204,7 @@ func TestProjectCountsProgressExcludesCancelled(t *testing.T) {
 	if got := c.Progress(); got < 0.49 || got > 0.51 {
 		t.Fatalf("progress = %v (%+v)", got, c)
 	}
-	if c.Cancelled != 1 || c.Remain != est || c.Estimated != 1 {
+	if c.Cancelled != 1 || c.Stale != 1 {
 		t.Fatalf("%+v", c)
 	}
 }

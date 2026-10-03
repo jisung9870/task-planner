@@ -45,17 +45,20 @@ type taskDetailOut struct {
 	Note  string   `json:"note,omitempty"`
 	Log   []string `json:"log,omitempty"`
 	Path  string   `json:"path"`
+	// Started/Finished/Elapsed are the 걸린 기간 read from the log: the first
+	// time work started and the last completion. Empty when not recorded.
+	Started  string `json:"started,omitempty" jsonschema:"처음 진행중이 된 시각 (착수 소급 포함)"`
+	Finished string `json:"finished,omitempty" jsonschema:"마지막 완료 시각"`
+	Elapsed  string `json:"elapsed,omitempty" jsonschema:"걸린 기간 = 완료 − 착수 (달력 기준, 중단 포함). 진행중이면 지금까지, 멈춘 채 완료 전이면 비어 있음"`
 }
 
 type summaryOut struct {
 	Date          string `json:"date"`
-	DueToday      int    `json:"due_today"`
-	Overdue       int    `json:"overdue"`
 	Doing         int    `json:"doing"`
 	WIPLimit      int    `json:"wip_limit"`
 	Blocked       int    `json:"blocked"`
 	BlockedMaxDay int    `json:"blocked_max_days"`
-	Carried       int    `json:"carried"`
+	Stale         int    `json:"stale" jsonschema:"꺼낸 뒤 stale_days 동안 착수하지 않았거나 그만큼 진행중인 열린 일"`
 }
 
 type projectRow struct {
@@ -67,12 +70,11 @@ type projectRow struct {
 	Doing   int    `json:"doing"`
 	Blocked int    `json:"blocked"`
 	Done    int    `json:"done"`
-	Overdue int    `json:"overdue"`
+	Stale   int    `json:"stale" jsonschema:"꺼낸 뒤 오래 착수하지 않았거나 오래 진행중인 열린 일"`
 	// Progress excludes cancelled work on both sides: abandoning tasks is not
 	// progress, and counting it as such would let a project reach 100% by
 	// giving up.
 	Progress float64 `json:"progress" jsonschema:"완료/(완료+열림). 취소는 제외"`
-	Remain   string  `json:"remain_estimate,omitempty" jsonschema:"열린 태스크의 예상 소요 합 (추정치가 있는 것만)"`
 }
 
 type projectRowsOut struct {
@@ -116,11 +118,9 @@ type timeArgs struct {
 }
 
 type timeRow struct {
-	Project  string  `json:"project"`
-	Tasks    int     `json:"tasks"`
-	Estimate string  `json:"estimate,omitempty"`
-	Actual   string  `json:"actual,omitempty"`
-	Ratio    float64 `json:"ratio,omitempty"`
+	Project string `json:"project"`
+	Tasks   int    `json:"tasks"`
+	Actual  string `json:"actual,omitempty" jsonschema:"작업 시간 합 (세션마다 session_cap 상한)"`
 }
 
 type timeRowsOut struct {
@@ -205,36 +205,47 @@ func (s *Server) registerReadTools() {
 		if err != nil {
 			return nil, taskDetailOut{}, err
 		}
-		return nil, taskDetailOut{
+		out := taskDetailOut{
 			Task:  toTaskJSON(t, s.svc.Today()),
 			Model: s.svc.ModelFor(t),
 			Note:  t.Note(),
 			Log:   t.LogLines(),
 			Path:  t.Path,
-		}, nil
+		}
+		now := s.svc.Now()
+		h := t.WorkHistory(now.Location())
+		if start, end, done := h.Lead(); !start.IsZero() {
+			out.Started = start.Format("2006-01-02 15:04")
+			switch {
+			case done:
+				out.Finished = end.Format("2006-01-02 15:04")
+				out.Elapsed = domain.SpanText(end.Sub(start))
+			case h.Running():
+				out.Elapsed = domain.SpanText(now.Sub(start))
+			}
+		}
+		return nil, out, nil
 	})
 
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "summary",
-		Description: "브리핑 요약: 오늘 마감/마감 초과/진행중(WIP)/보류(최장 경과일)/이월 건수.",
+		Description: "브리핑 요약: 진행중(WIP)/보류(최장 경과일)/오래 멈춘 일 건수.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, _ any) (*mcp.CallToolResult, summaryOut, error) {
 		defer s.begin()()
 		sum := s.svc.Summarize()
 		return nil, summaryOut{
 			Date:          s.svc.Today().String(),
-			DueToday:      sum.DueToday,
-			Overdue:       sum.Overdue,
 			Doing:         sum.Doing,
 			WIPLimit:      sum.WIPLimit,
 			Blocked:       sum.Blocked,
 			BlockedMaxDay: sum.BlockedMaxDay,
-			Carried:       sum.Carried,
+			Stale:         sum.Stale,
 		}, nil
 	})
 
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "project_status",
-		Description: "프로젝트별 진행 현황: 건수 집계 + 진행률 + 남은 예상 시간 + 프로젝트 마감(마일스톤). 태스크가 아직 없는 프로젝트도 포함됨.",
+		Description: "프로젝트별 진행 현황: 건수 집계 + 진행률 + 오래 멈춘 일 + 프로젝트 마감(마일스톤). 태스크가 아직 없는 프로젝트도 포함됨.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, _ any) (*mcp.CallToolResult, projectRowsOut, error) {
 		defer s.begin()()
 		list, err := s.svc.ProjectRows()
@@ -247,8 +258,8 @@ func (s *Server) registerReadTools() {
 				Project: query.ProjectLabel(r.Slug), Name: r.Name,
 				Status: r.Status, Due: r.Due.String(),
 				Open: r.Open, Doing: r.Doing, Blocked: r.Blocked,
-				Done: r.Done, Overdue: r.Overdue,
-				Progress: r.Progress(), Remain: r.Remain.String(),
+				Done: r.Done, Stale: r.Stale,
+				Progress: r.Progress(),
 			}
 		}
 		return nil, projectRowsOut{Rows: rows}, nil
@@ -305,7 +316,7 @@ func (s *Server) registerReadTools() {
 
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "time_summary",
-		Description: "프로젝트별 예상(estimate) 대비 실소요(actual) 집계. ratio > 1 이면 예상이 낙관적이었다는 뜻.",
+		Description: "프로젝트별 작업 시간(actual) 집계. 한 태스크가 언제 시작해 얼마나 걸렸는지는 task_get 의 started·finished·elapsed.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in timeArgs) (*mcp.CallToolResult, timeRowsOut, error) {
 		defer s.begin()()
 		// Same periods as `tp time`: no bounds for all, Monday~Sunday for week.
@@ -325,7 +336,7 @@ func (s *Server) registerReadTools() {
 		for i, r := range rows {
 			out[i] = timeRow{
 				Project: query.ProjectLabel(r.Slug), Tasks: r.Tasks,
-				Estimate: r.Estimate.String(), Actual: r.Actual.String(), Ratio: r.Ratio(),
+				Actual: r.Actual.String(),
 			}
 		}
 		return nil, timeRowsOut{Rows: out}, nil
@@ -333,7 +344,7 @@ func (s *Server) registerReadTools() {
 
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "report_week",
-		Description: "주간 리포트 markdown 생성 (완료/진행중/보류/이월/다음 주 예정, 프로젝트별 그룹). 주간보고 초안의 출발점.",
+		Description: "주간 리포트 markdown 생성 (완료·진행중은 착수·걸린 기간·작업 시간과 함께, 보류/오래 멈춤/다음 주 꺼낼 일, 프로젝트별 그룹). 주간보고 초안의 출발점.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in reportArgs) (*mcp.CallToolResult, reportOut, error) {
 		defer s.begin()()
 		today := s.svc.Today()

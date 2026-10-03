@@ -107,21 +107,13 @@ func TestHourlyTimelineNavigationAndPersistence(t *testing.T) {
 	if !m.timelineDay().Equal(svc.Today()) {
 		t.Fatal("t did not return to today")
 	}
-	key("f")
-	if m.hourlyTimeline() || m.tlActual {
-		t.Fatal("planned mode should use daily axis")
-	}
-	key("f")
-	if !m.hourlyTimeline() {
-		t.Fatal("actual mode lost hourly preference")
-	}
 	m.saveUIState()
 	if restored := New(svc); !restored.hourlyTimeline() {
 		t.Fatal("hourly preference not restored")
 	}
 	key("z")
-	if m.hourlyTimeline() || !m.tlActual {
-		t.Fatal("z did not restore actual daily view")
+	if m.hourlyTimeline() {
+		t.Fatal("z did not restore the daily view")
 	}
 	if d, n := m.timelineWindow(); n < 7 || !d.Equal(svc.Today().WeekStart()) {
 		t.Fatalf("daily window: %s/%d", d, n)

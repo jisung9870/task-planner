@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"fmt"
 	"strings"
 	"time"
 )
@@ -86,6 +87,9 @@ func (h WorkHistory) Lead() (start, end time.Time, ok bool) {
 		return time.Time{}, time.Time{}, false
 	}
 	start = h.Sessions[0].Start
+	if h.Running() {
+		return start, time.Time{}, false // reopened and running again
+	}
 	for i := len(h.Finishes) - 1; i >= 0; i-- {
 		if h.Finishes[i].Status == StatusDone {
 			end = h.Finishes[i].At
@@ -159,4 +163,47 @@ func (h WorkHistory) Bounds(today Date) (Date, Date) {
 	}
 	add(h.Completed)
 	return start, end
+}
+
+// Running reports whether the last recorded session is still open.
+func (h WorkHistory) Running() bool {
+	return len(h.Sessions) > 0 && h.Sessions[len(h.Sessions)-1].End.IsZero()
+}
+
+// LeadLabel spells out 걸린 기간 for a detail view: when work started, when it
+// finished, and the span between in calendar terms. A running task reads as
+// "since"; a task with no recorded start says nothing rather than guess.
+func (h WorkHistory) LeadLabel(now time.Time) string {
+	if len(h.Sessions) == 0 {
+		return ""
+	}
+	start, end, done := h.Lead()
+	at := func(t time.Time) string { return t.Format("01-02 15:04") }
+	switch {
+	case h.Running():
+		return fmt.Sprintf("착수 %s · %s째", at(start), SpanText(now.Sub(start)))
+	case !done:
+		return fmt.Sprintf("착수 %s · 멈춤 (완료 전)", at(start))
+	}
+	return fmt.Sprintf("착수 %s → 완료 %s (%s)", at(start), at(end), SpanText(end.Sub(start)))
+}
+
+// SpanText renders an elapsed span the way it is said: minutes and hours under
+// a day, days and hours past it. "50h" hides that it was three days.
+func SpanText(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	d = d.Round(time.Minute)
+	if d == 0 {
+		return "0m"
+	}
+	if d < 24*time.Hour {
+		return Duration(d).String()
+	}
+	days, hours := int(d/(24*time.Hour)), int(d%(24*time.Hour)/time.Hour)
+	if hours == 0 {
+		return fmt.Sprintf("%d일", days)
+	}
+	return fmt.Sprintf("%d일 %d시간", days, hours)
 }

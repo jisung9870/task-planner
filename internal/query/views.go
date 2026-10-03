@@ -12,8 +12,8 @@ import (
 
 // Today answers "오늘 뭘 해야 하지".
 //
-// A task qualifies when it is already in progress, when it was scheduled for
-// today or earlier, or when its deadline has arrived. Tasks completed today are
+// A task qualifies when it is already in progress or when its 꺼낼 날 is today
+// or earlier. Tasks completed today are
 // included so the view doubles as a record of the day.
 func Today(all []*domain.Task, today domain.Date) []*domain.Task {
 	var out []*domain.Task
@@ -21,7 +21,6 @@ func Today(all []*domain.Task, today domain.Date) []*domain.Task {
 		switch {
 		case t.Status == domain.StatusDoing:
 		case t.IsOpen() && !t.Scheduled.IsZero() && !t.Scheduled.After(today):
-		case t.IsOpen() && !t.Due.IsZero() && !t.Due.After(today):
 		case t.Status.Terminal() && t.Completed.Equal(today):
 		default:
 			continue
@@ -32,45 +31,51 @@ func Today(all []*domain.Task, today domain.Date) []*domain.Task {
 	return out
 }
 
-// Week answers "이번 주에 뭐가 남았지" for the ISO week containing ref.
-//
-// today is separate from ref because the grid can be paged to another week:
-// 진행중과 마감초과는 "지금" 의 사정이라 보고 있는 주가 오늘을 품을 때만
-// 따라온다. 다음 주를 보는데 이번 주 잔업이 얹히면 그건 계획이 아니라
-// 오늘의 목록이다.
-func Week(all []*domain.Task, ref, today domain.Date) []*domain.Task {
+// Week answers "이번 주에 뭘 했고 뭐가 꺼내질 예정이지" for the ISO week
+// containing ref: work that ran or finished inside the week (from the status
+// log, hs), 대기중 work whose 꺼낼 날 falls inside it, and - while the week
+// holds today - what is running now and the unscheduled backlog. Paging to
+// another week drops the last two: they are today's situation, not that
+// week's record.
+func Week(all []*domain.Task, hs map[string]domain.WorkHistory, ref, today domain.Date) []*domain.Task {
 	start := ref.WeekStart()
 	end := start.AddDays(6)
 	current := !today.IsZero() && !today.Before(start) && !today.After(end)
 	var out []*domain.Task
 	for _, t := range all {
-		if t.Status == domain.StatusDoing && current {
-			out = append(out, t)
+		switch {
+		case current && t.Status == domain.StatusDoing:
+		case current && Backlog(t):
+		case t.Status == domain.StatusTodo && !t.Scheduled.IsZero() &&
+			!t.Scheduled.Before(start) && !t.Scheduled.After(end):
+		case workedWithin(hs[t.ID], start, end, today):
+		default:
 			continue
 		}
-		// The 진행 기간 as a whole decides membership, not just its endpoints:
-		// a task that started last week and is due next week is still work
-		// this week has to make room for.
-		if t.SpanOverlaps(start, end) {
-			out = append(out, t)
-			continue
-		}
-		// Anything overdue keeps showing up until it is dealt with.
-		if current && t.Overdue(today) {
-			out = append(out, t)
-		}
+		out = append(out, t)
 	}
 	domain.SortDefault(out, ref)
 	return out
 }
 
-// WeekDays buckets a week list onto the days it occupies. A task with a
-// 진행 기간 (scheduled..due spanning several days) appears on every day of the
-// period that falls inside the week, which is what makes the grid a calendar
-// rather than a list of start dates. Tasks whose period misses the week
-// entirely - and undated ones - land in the zero Date bucket, rendered as
-// "미배정".
-func WeekDays(ts []*domain.Task, ref domain.Date) (map[domain.Date][]*domain.Task, []domain.Date) {
+// Backlog is 대기중 work with no 꺼낼 날: decided on, not yet surfaced.
+func Backlog(t *domain.Task) bool {
+	return t.Status == domain.StatusTodo && t.Scheduled.IsZero()
+}
+
+func workedWithin(h domain.WorkHistory, start, end, today domain.Date) bool {
+	for d := start; !d.After(end); d = d.AddDays(1) {
+		if h.InDay(d, today) {
+			return true
+		}
+	}
+	return false
+}
+
+// WeekDays buckets a week list onto days. A task sits on every day it was
+// worked or finished (a pause leaves the day blank), and a 대기중 task on its
+// 꺼낼 날. The rest - the backlog - lands in the zero Date bucket.
+func WeekDays(ts []*domain.Task, hs map[string]domain.WorkHistory, ref, today domain.Date) (map[domain.Date][]*domain.Task, []domain.Date) {
 	start := ref.WeekStart()
 	days := make([]domain.Date, 7)
 	for i := range days {
@@ -79,8 +84,9 @@ func WeekDays(ts []*domain.Task, ref domain.Date) (map[domain.Date][]*domain.Tas
 	buckets := map[domain.Date][]*domain.Task{}
 	for _, t := range ts {
 		placed := false
+		h := hs[t.ID]
 		for _, d := range days {
-			if t.InSpan(d) {
+			if h.InDay(d, today) || (t.Status == domain.StatusTodo && t.Scheduled.Equal(d)) {
 				buckets[d] = append(buckets[d], t)
 				placed = true
 			}
@@ -129,13 +135,9 @@ type ProjectCount struct {
 	Blocked   int
 	Done      int
 	Cancelled int
-	Overdue   int
-	// Remain sums the estimates of work still open - the burndown number. It
-	// only counts tasks that carry an estimate, so it is a floor, not a total.
-	Remain domain.Duration
-	// Estimated is how many open tasks actually have an estimate, which is what
-	// makes Remain readable ("3/7 항목만 추정됨").
-	Estimated int
+	// Stale counts open work that surfaced and sat, or has run, past
+	// stale_days - the project's "쪼개거나 버릴 것".
+	Stale int
 }
 
 // Progress is the share of decided work that is done. Cancelled work is
@@ -150,7 +152,7 @@ func (c ProjectCount) Progress() float64 {
 }
 
 // ProjectCounts aggregates tasks per project slug, sorted by open work first.
-func ProjectCounts(all []*domain.Task, today domain.Date) []ProjectCount {
+func ProjectCounts(all []*domain.Task, today domain.Date, staleDays int) []ProjectCount {
 	byslug := map[string]*ProjectCount{}
 	for _, t := range all {
 		// The empty slug is kept as-is so drilling into the row filters on
@@ -175,12 +177,8 @@ func ProjectCounts(all []*domain.Task, today domain.Date) []ProjectCount {
 		case t.Status == domain.StatusCancelled:
 			c.Cancelled++
 		}
-		if t.IsOpen() && !t.Estimate.IsZero() {
-			c.Remain += t.Estimate
-			c.Estimated++
-		}
-		if t.Overdue(today) {
-			c.Overdue++
+		if t.Stale(today, staleDays) {
+			c.Stale++
 		}
 	}
 	out := make([]ProjectCount, 0, len(byslug))

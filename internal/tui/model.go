@@ -191,7 +191,6 @@ type Model struct {
 	// work the chart cannot place, which the tab reports instead of hiding.
 	tlStart   domain.Date
 	tlUndated int
-	tlActual  bool
 	tlHourly  bool
 	tlDay     domain.Date
 	tlHistory map[string]domain.WorkHistory
@@ -265,7 +264,6 @@ func New(svc *service.Service) *Model {
 		m.tab = tab(ui.Tab)
 	}
 	m.wideDetail = ui.WideDetail
-	m.tlActual = ui.TimelineActual
 	m.tlHourly = ui.TimelineHourly
 	if ui.ExecutorScope == "human" || ui.ExecutorScope == "agent" || ui.ExecutorScope == "all" {
 		m.scope = ui.ExecutorScope
@@ -507,16 +505,15 @@ func (m *Model) reloadBoard(today domain.Date) {
 	m.clampBoard()
 }
 
-// weekLaneUnassigned is the index of the 미배정 lane in the Week grid.
+// weekLaneUnassigned is the index of the backlog lane in the Week grid.
 const weekLaneUnassigned = 7
 
-// reloadWeek buckets the week's work by day, plus a lane for tasks that belong
-// to the week but have no date inside it. This is the view that finally uses
-// query.WeekDays - a status-grouped list cannot show how the week is laid out.
+// reloadWeek buckets the week's work by day - worked, finished, or due to
+// surface - plus a lane for the backlog.
 func (m *Model) reloadWeek(ref domain.Date) {
 	ts := m.svc.WeekList(ref)
 	ts = m.filterTasks(ts)
-	buckets, days := query.WeekDays(ts, ref)
+	buckets, days := m.svc.WeekDays(ts, ref)
 	m.weekDays = days
 	m.weekLoads = m.svc.WeekLoadFor(ref, m.filterTasks(m.svc.All()))
 	m.cols = make([][]*domain.Task, 8)

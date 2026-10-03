@@ -50,7 +50,7 @@ func (s *Service) ProjectRows() ([]ProjectRow, error) {
 func (s *Service) ProjectRowsFor(tasks []*domain.Task) ([]ProjectRow, error) {
 	rows := map[string]*ProjectRow{}
 	var order []string
-	for _, c := range query.ProjectCounts(tasks, s.Today()) {
+	for _, c := range query.ProjectCounts(tasks, s.Today(), s.Cfg.StaleDays) {
 		rows[c.Slug] = &ProjectRow{ProjectCount: c}
 		order = append(order, c.Slug)
 	}

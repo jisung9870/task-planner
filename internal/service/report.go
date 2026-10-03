@@ -16,7 +16,11 @@ func (s *Service) WeekReport(ref domain.Date) string {
 	if ref.IsZero() {
 		ref = s.Today()
 	}
-	return report.Week(report.WeekInput{Tasks: s.All(), Ref: ref, Today: s.Today()})
+	ts := s.All()
+	return report.Week(report.WeekInput{
+		Tasks: ts, Ref: ref, Today: s.Today(),
+		Histories: s.weekHistories(ts, ref), StaleDays: s.Cfg.StaleDays,
+	})
 }
 
 // WriteWeekReport saves the report under reports/YYYY-Www.md and returns the

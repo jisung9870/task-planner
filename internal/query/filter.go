@@ -36,7 +36,7 @@ func (f *Filter) NeedsBody() bool {
 
 // MatchCheap applies only the terms that read indexed fields. It narrows a list
 // before the body terms force files to be read.
-func (f *Filter) MatchCheap(t *domain.Task, today domain.Date, dueSoonDays int) bool {
+func (f *Filter) MatchCheap(t *domain.Task, today domain.Date, staleDays int) bool {
 	if f.Empty() {
 		return true
 	}
@@ -44,7 +44,7 @@ func (f *Filter) MatchCheap(t *domain.Task, today domain.Date, dueSoonDays int) 
 		if tm.needsBody {
 			continue
 		}
-		if tm.match(t, today, dueSoonDays) == tm.negated {
+		if tm.match(t, today, staleDays) == tm.negated {
 			return false
 		}
 	}
@@ -54,12 +54,12 @@ func (f *Filter) MatchCheap(t *domain.Task, today domain.Date, dueSoonDays int) 
 // Match reports whether a task satisfies every term (terms are ANDed; OR is
 // deliberately absent - it has never been needed to answer the questions in
 // the planning doc, and adding it would require precedence rules).
-func (f *Filter) Match(t *domain.Task, today domain.Date, dueSoonDays int) bool {
+func (f *Filter) Match(t *domain.Task, today domain.Date, staleDays int) bool {
 	if f.Empty() {
 		return true
 	}
 	for _, tm := range f.terms {
-		if tm.match(t, today, dueSoonDays) == tm.negated {
+		if tm.match(t, today, staleDays) == tm.negated {
 			return false
 		}
 	}
@@ -67,10 +67,10 @@ func (f *Filter) Match(t *domain.Task, today domain.Date, dueSoonDays int) bool 
 }
 
 // Apply filters and sorts a task list.
-func (f *Filter) Apply(ts []*domain.Task, today domain.Date, dueSoonDays int) []*domain.Task {
+func (f *Filter) Apply(ts []*domain.Task, today domain.Date, staleDays int) []*domain.Task {
 	var out []*domain.Task
 	for _, t := range ts {
-		if f.Match(t, today, dueSoonDays) {
+		if f.Match(t, today, staleDays) {
 			out = append(out, t)
 		}
 	}
@@ -361,10 +361,15 @@ func isTerm(value string) (func(*domain.Task, domain.Date, int) bool, error) {
 		return func(t *domain.Task, _ domain.Date, _ int) bool { return t.IsOpen() }, nil
 	case "closed", "done", "완료":
 		return func(t *domain.Task, _ domain.Date, _ int) bool { return t.Status.Terminal() }, nil
+	case "stale", "멈춤":
+		return func(t *domain.Task, today domain.Date, n int) bool { return t.Stale(today, n) }, nil
+	// overdue·duesoon·carried read retired fields (due, rollover_count). They
+	// stay so saved views and old habits still find old data instead of
+	// failing to parse.
 	case "overdue", "마감초과":
 		return func(t *domain.Task, today domain.Date, _ int) bool { return t.Overdue(today) }, nil
 	case "duesoon", "due-soon", "임박":
-		return func(t *domain.Task, today domain.Date, n int) bool { return t.DueSoon(today, n) }, nil
+		return func(t *domain.Task, today domain.Date, _ int) bool { return t.DueSoon(today, 3) }, nil
 	case "blocked", "보류":
 		return func(t *domain.Task, _ domain.Date, _ int) bool { return t.Status == domain.StatusBlocked }, nil
 	case "carried", "이월":

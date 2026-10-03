@@ -8,7 +8,7 @@ import (
 	"task-planner/internal/domain"
 )
 
-func (m *Model) hourlyTimeline() bool { return m.tlActual && m.tlHourly }
+func (m *Model) hourlyTimeline() bool { return m.tlHourly }
 
 func (m *Model) timelineDay() domain.Date {
 	if m.tlDay.IsZero() {
@@ -48,7 +48,7 @@ func (m *Model) toggleTimelineScale() {
 				}
 			}
 		}
-		m.tlActual, m.tlHourly, m.tlDay = true, true, day
+		m.tlHourly, m.tlDay = true, day
 	}
 	m.cursor, m.listOffset = 0, 0
 	m.reload()

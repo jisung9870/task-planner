@@ -118,7 +118,7 @@ func newTodayCmd() *cobra.Command {
 				today := svc.Today()
 				fmt.Fprintf(cmd.OutOrStdout(), "%s (%s)%s\n", today, today.WeekdayKO(),
 					loadSuffix(svc.DayLoad(today)))
-				renderList(cmd.OutOrStdout(), svc.TodayList(), today, svc.Cfg.DueSoonDays)
+				renderList(cmd.OutOrStdout(), svc.TodayList(), today, svc.Cfg.StaleDays)
 				return nil
 			})
 		},
@@ -136,7 +136,7 @@ func newWeekCmd() *cobra.Command {
 				fmt.Fprintf(cmd.OutOrStdout(), "%s  (%s ~ %s)\n",
 					today.WeekLabel(), start, start.AddDays(6))
 				renderWeekLoad(cmd.OutOrStdout(), svc.WeekLoad(today), today)
-				renderList(cmd.OutOrStdout(), svc.WeekList(today), today, svc.Cfg.DueSoonDays)
+				renderList(cmd.OutOrStdout(), svc.WeekList(today), today, svc.Cfg.StaleDays)
 				return nil
 			})
 		},
@@ -193,7 +193,7 @@ func newListCmd() *cobra.Command {
 					}
 					ts = svc.ApplyFilter(f, ts)
 				}
-				renderList(cmd.OutOrStdout(), ts, today, svc.Cfg.DueSoonDays)
+				renderList(cmd.OutOrStdout(), ts, today, svc.Cfg.StaleDays)
 				return nil
 			})
 		},
@@ -223,6 +223,9 @@ func newShowCmd() *cobra.Command {
 				}
 				out := cmd.OutOrStdout()
 				fmt.Fprintf(out, "%s\n\n%s", t.Path, raw)
+				if lead := t.WorkHistory(svc.Now().Location()).LeadLabel(svc.Now()); lead != "" {
+					fmt.Fprintf(out, "\n걸린 기간: %s\n", lead)
+				}
 				if m := svc.ModelFor(t); m != "" {
 					fmt.Fprintf(out, "\n모델: %s (%s · %s)\n", m, t.RunAgent(), t.Tier)
 				}
@@ -351,13 +354,13 @@ func newProjectsCmd() *cobra.Command {
 				fmt.Fprintf(out, "%s %s %s %s %s %s %s %s\n",
 					pad("프로젝트", 18), pad("상태", 8), pad("진행률", 14),
 					padLeft("열림", 5), padLeft("진행중", 6), padLeft("완료", 5),
-					padLeft("남은예상", 9), "마감")
+					padLeft("멈춤", 5), "마감")
 				for _, r := range rows {
 					fmt.Fprintf(out, "%s %s %s %s %s %s %s %s\n",
 						pad(query.ProjectLabel(r.Slug), 18), pad(projectStatusLabel(r), 8),
 						pad(progressBar(r.Progress(), 5), 14),
 						padLeft(fmt.Sprint(r.Open), 5), padLeft(fmt.Sprint(r.Doing), 6),
-						padLeft(fmt.Sprint(r.Done), 5), padLeft(r.Remain.String(), 9),
+						padLeft(fmt.Sprint(r.Done), 5), padLeft(fmt.Sprint(r.Stale), 5),
 						projectDueLabel(r, today))
 				}
 				return nil

@@ -212,11 +212,11 @@ func TestQueryAndEdit(t *testing.T) {
 
 func TestSummaryAndReport(t *testing.T) {
 	cs, _ := newTestSession(t)
-	call(t, cs, "task_add", map[string]any{"title": "오늘 마감", "due": "today"})
+	call(t, cs, "task_add", map[string]any{"title": "꺼낸 채 둔 일", "scheduled": "2026-09-01"})
 	call(t, cs, "task_add", map[string]any{"title": "진행", "start": true})
 
 	sum := call(t, cs, "summary", nil)
-	if sum["due_today"].(float64) != 1 || sum["doing"].(float64) != 1 {
+	if sum["stale"].(float64) != 1 || sum["doing"].(float64) != 1 {
 		t.Fatalf("summary = %v", sum)
 	}
 
@@ -275,7 +275,7 @@ func TestProjectCreateSetAndStatus(t *testing.T) {
 		t.Fatalf("create = %v", out)
 	}
 	call(t, cs, "project_set", map[string]any{"slug": "infra", "due": "2026-10-31", "status": "paused"})
-	call(t, cs, "task_add", map[string]any{"title": "방화벽", "project": "infra", "estimate": "2h"})
+	call(t, cs, "task_add", map[string]any{"title": "방화벽", "project": "infra", "scheduled": "2026-09-01"})
 	call(t, cs, "task_add", map[string]any{"title": "라우팅", "project": "infra"})
 	call(t, cs, "task_status", map[string]any{"ref": "#2", "status": "done"})
 
@@ -287,8 +287,8 @@ func TestProjectCreateSetAndStatus(t *testing.T) {
 	if p := row["progress"].(float64); p < 0.49 || p > 0.51 {
 		t.Fatalf("progress = %v", p)
 	}
-	if row["remain_estimate"] != "2h" {
-		t.Fatalf("remain = %v", row["remain_estimate"])
+	if row["stale"].(float64) != 1 {
+		t.Fatalf("stale = %v", row["stale"])
 	}
 }
 
@@ -305,7 +305,7 @@ func TestNextAndDayLoad(t *testing.T) {
 	if first["task"].(map[string]any)["title"] != "오늘 마감" {
 		t.Fatalf("추천 = %v", first)
 	}
-	if reason := first["reason"].(string); !strings.Contains(reason, "오늘 마감") {
+	if reason := first["reason"].(string); !strings.Contains(reason, "오늘 꺼낸 일") {
 		t.Fatalf("reason = %q", reason)
 	}
 
@@ -401,9 +401,9 @@ func TestWriteToolsEchoThePreview(t *testing.T) {
 	cs, _ := newTestSession(t)
 	out := call(t, cs, "task_add", map[string]any{
 		"title": "결제 콜백 중복 수신", "project": "billing", "priority": "P1",
-		"scheduled": "2026-09-15", "due": "2026-09-19",
+		"scheduled": "2026-09-15",
 	})
-	want := "○ #1 결제 콜백 중복 수신  [billing · P1]  09-15~09-19 5일"
+	want := "○ #1 결제 콜백 중복 수신  [billing · P1]  꺼냄 09-15"
 	if out["preview"] != want {
 		t.Fatalf("preview = %q, want %q", out["preview"], want)
 	}

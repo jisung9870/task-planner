@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"task-planner/internal/config"
 	"task-planner/internal/domain"
 	"task-planner/internal/service"
@@ -44,7 +43,9 @@ func TestTimelineWindowFitsWidth(t *testing.T) {
 	}
 }
 
-func TestTimelineSwitchesBetweenPlanAndActualWithPersistedSelection(t *testing.T) {
+// The Timeline draws what happened, not what was planned: a task with only a
+// 꺼낼 날 has no bar, and is counted in the footnote instead.
+func TestTimelineDrawsOnlyRecordedWork(t *testing.T) {
 	cfg := config.Default(t.TempDir())
 	svc, err := service.Init(cfg)
 	if err != nil {
@@ -53,8 +54,7 @@ func TestTimelineSwitchesBetweenPlanAndActualWithPersistedSelection(t *testing.T
 	now := time.Date(2026, 9, 21, 9, 15, 0, 0, time.UTC)
 	svc.SetClock(func() time.Time { return now })
 	day := domain.DateOf(now)
-	planned, err := svc.Add(service.AddInput{Title: "계획만 있음", Scheduled: day, Due: day.AddDays(2)})
-	if err != nil {
+	if _, err := svc.Add(service.AddInput{Title: "꺼낼 날만 있음", Scheduled: day}); err != nil {
 		t.Fatal(err)
 	}
 	worked, err := svc.Add(service.AddInput{Title: "일정 없이 작업", Status: domain.StatusDoing})
@@ -68,12 +68,8 @@ func TestTimelineSwitchesBetweenPlanAndActualWithPersistedSelection(t *testing.T
 	m := New(svc)
 	m.tab, m.width, m.height, m.wideDetail = tabTimeline, 100, 30, false
 	m.reload()
-	if len(m.rows) != 1 || m.rows[0].task.ID != planned.ID {
-		t.Fatalf("planned rows: %+v", m.rows)
-	}
-	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
-	if !m.tlActual || len(m.rows) != 1 || m.rows[0].task.ID != worked.ID {
-		t.Fatalf("actual rows: %+v", m.rows)
+	if len(m.rows) != 1 || m.rows[0].task.ID != worked.ID {
+		t.Fatalf("rows: %+v", m.rows)
 	}
 	view := m.View()
 	for _, want := range []string{"실제 작업", "2026-09-21 09:15", "2026-09-21 11:15", "실제 기록 없음 1건"} {
@@ -86,22 +82,13 @@ func TestTimelineSwitchesBetweenPlanAndActualWithPersistedSelection(t *testing.T
 			t.Errorf("row hit at %d", hit.y)
 		}
 	}
-	m.saveUIState()
-	if restored := New(svc); !restored.tlActual || restored.tab != tabTimeline {
-		t.Fatal("view mode not restored")
-	}
 	m.filter, err = svc.Filter("status:todo")
 	if err != nil {
 		t.Fatal(err)
 	}
 	m.reload()
 	if len(m.rows) != 0 {
-		t.Fatal("actual view ignored filter")
-	}
-	m.filter = nil
-	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
-	if m.tlActual || len(m.rows) != 1 || m.rows[0].task.ID != planned.ID {
-		t.Fatal("plan changed after toggle")
+		t.Fatal("timeline ignored filter")
 	}
 }
 
@@ -125,7 +112,7 @@ func TestActualTimelineLeavesPausedDaysBlank(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := New(svc)
-	m.tab, m.tlActual, m.width = tabTimeline, true, 46
+	m.tab, m.width = tabTimeline, 46
 	m.tlStart = domain.NewDate(2026, 9, 28)
 	m.reload()
 	if len(m.rows) != 0 {

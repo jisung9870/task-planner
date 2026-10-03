@@ -495,10 +495,6 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.toggleTimelineScale()
 		}
 	case "f":
-		if m.tab == tabTimeline {
-			m.toggleTimelineMode()
-			break
-		}
 		if m.tab != tabToday && m.tab != tabAll {
 			break
 		}
@@ -1243,7 +1239,7 @@ func (m *Model) runningTask() *domain.Task {
 
 // saveUIState persists the layout choices worth restoring next launch.
 func (m *Model) saveUIState() {
-	_ = m.svc.SaveUIState(service.UIState{Tab: int(m.tab), WideDetail: m.wideDetail, ListGrouping: string(m.grouping), TimelineActual: m.tlActual, TimelineHourly: m.tlHourly, ExecutorScope: m.scope})
+	_ = m.svc.SaveUIState(service.UIState{Tab: int(m.tab), WideDetail: m.wideDetail, ListGrouping: string(m.grouping), TimelineHourly: m.tlHourly, ExecutorScope: m.scope})
 }
 
 // selectID keeps the cursor on the same task across a reload. On a grid tab a

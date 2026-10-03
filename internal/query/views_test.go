@@ -37,7 +37,7 @@ func has(ts []*domain.Task, id string) bool {
 	return false
 }
 
-func TestTodayIncludesDoingScheduledAndDue(t *testing.T) {
+func TestTodayIncludesDoingAndSurfaced(t *testing.T) {
 	all := []*domain.Task{
 		task("doing-unscheduled", domain.StatusDoing, "", ""),
 		task("scheduled-today", domain.StatusTodo, "2026-09-12", ""),
@@ -47,24 +47,16 @@ func TestTodayIncludesDoingScheduledAndDue(t *testing.T) {
 		task("backlog", domain.StatusTodo, "", ""),
 	}
 	got := Today(all, today)
-	for _, want := range []string{"doing-unscheduled", "scheduled-today", "scheduled-past", "due-today"} {
+	for _, want := range []string{"doing-unscheduled", "scheduled-today", "scheduled-past"} {
 		if !has(got, want) {
 			t.Errorf("%s 가 Today 에 없음: %v", want, ids(got))
 		}
 	}
-	for _, no := range []string{"scheduled-future", "backlog"} {
+	// due is retired: a deadline no longer pulls a task into Today.
+	for _, no := range []string{"scheduled-future", "backlog", "due-today"} {
 		if has(got, no) {
 			t.Errorf("%s 가 Today 에 잘못 포함됨: %v", no, ids(got))
 		}
-	}
-}
-
-// Separating scheduled from due is the reason the Today view is usable; a task
-// due later but scheduled for today must show up.
-func TestTodaySeparatesScheduledFromDue(t *testing.T) {
-	all := []*domain.Task{task("t", domain.StatusTodo, "2026-09-12", "2026-09-30")}
-	if got := Today(all, today); len(got) != 1 {
-		t.Fatalf("got %v", ids(got))
 	}
 }
 
@@ -79,39 +71,85 @@ func TestTodayIncludesTasksCompletedToday(t *testing.T) {
 	}
 }
 
-func TestWeekCoversISOWeekAndOverdue(t *testing.T) {
+// at builds a local time on a September 2026 day, for work histories.
+func at(day, hour int) time.Time {
+	return time.Date(2026, time.September, day, hour, 0, 0, 0, time.Local)
+}
+
+func worked(start, end time.Time) domain.WorkHistory {
+	return domain.WorkHistory{Sessions: []domain.WorkSession{{Start: start, End: end}}}
+}
+
+func TestWeekCoversWorkAndSurfacingInTheISOWeek(t *testing.T) {
 	all := []*domain.Task{
-		task("in-week", domain.StatusTodo, "2026-09-09", ""),
-		task("week-edge-mon", domain.StatusTodo, "2026-09-07", ""),
-		task("week-edge-sun", domain.StatusTodo, "2026-09-13", ""),
+		task("surfaces-wed", domain.StatusTodo, "2026-09-09", ""),
+		task("surfaces-mon", domain.StatusTodo, "2026-09-07", ""),
+		task("surfaces-sun", domain.StatusTodo, "2026-09-13", ""),
 		task("next-week", domain.StatusTodo, "2026-09-14", ""),
-		task("overdue", domain.StatusTodo, "", "2026-08-30"),
+		task("worked-tue", domain.StatusDone, "", ""),
+		task("worked-last-week", domain.StatusDone, "", ""),
+		task("backlog", domain.StatusTodo, "", ""),
+		task("due-only", domain.StatusTodo, "", "2026-09-10"),
 	}
-	got := Week(all, today, today)
-	for _, want := range []string{"in-week", "week-edge-mon", "week-edge-sun", "overdue"} {
+	hs := map[string]domain.WorkHistory{
+		"worked-tue":       worked(at(8, 9), at(8, 11)),
+		"worked-last-week": worked(at(1, 9), at(1, 11)),
+	}
+	got := Week(all, hs, today, today)
+	for _, want := range []string{"surfaces-wed", "surfaces-mon", "surfaces-sun", "worked-tue", "backlog"} {
 		if !has(got, want) {
 			t.Errorf("%s 가 Week 에 없음: %v", want, ids(got))
 		}
 	}
-	if has(got, "next-week") {
-		t.Errorf("다음 주 항목이 포함됨: %v", ids(got))
+	for _, no := range []string{"next-week", "worked-last-week"} {
+		if has(got, no) {
+			t.Errorf("%s 가 포함됨: %v", no, ids(got))
+		}
+	}
+	// A due date no longer puts a task on a day: undated, it is backlog.
+	buckets, _ := WeekDays(got, hs, today, today)
+	if !has(buckets[domain.Date{}], "due-only") {
+		t.Errorf("due-only 가 백로그에 없음: %v", ids(buckets[domain.Date{}]))
 	}
 }
 
-func TestWeekDaysBucketsUnassigned(t *testing.T) {
+func TestWeekDaysPlacesWorkAndSurfacing(t *testing.T) {
 	all := []*domain.Task{
 		task("mon", domain.StatusTodo, "2026-09-07", ""),
-		task("floating", domain.StatusDoing, "", ""),
+		task("two-days", domain.StatusDone, "", ""),
+		task("backlog", domain.StatusTodo, "", ""),
 	}
-	buckets, days := WeekDays(all, today)
+	hs := map[string]domain.WorkHistory{"two-days": worked(at(9, 15), at(10, 11))}
+	buckets, days := WeekDays(all, hs, today, today)
 	if len(days) != 7 || days[0].String() != "2026-09-07" {
 		t.Fatalf("days = %v", days)
 	}
-	if len(buckets[domain.NewDate(2026, time.September, 7)]) != 1 {
-		t.Fatalf("월요일 버킷 = %v", buckets)
+	if !has(buckets[days[0]], "mon") {
+		t.Fatalf("월요일 버킷 = %v", ids(buckets[days[0]]))
 	}
-	if len(buckets[domain.Date{}]) != 1 {
-		t.Fatalf("미배정 버킷 = %v", buckets[domain.Date{}])
+	for i, d := range days {
+		want := i == 2 || i == 3 // 수·목
+		if got := has(buckets[d], "two-days"); got != want {
+			t.Errorf("%s: 작업한 날 포함 %v, want %v", d, got, want)
+		}
+	}
+	if lane := buckets[domain.Date{}]; len(lane) != 1 || !has(lane, "backlog") {
+		t.Fatalf("백로그 버킷 = %v", ids(lane))
+	}
+}
+
+// A pause leaves the day blank: the week shows when work happened, not a bar
+// from first start to last finish.
+func TestWeekDaysLeavesPausedDaysBlank(t *testing.T) {
+	paused := task("paused", domain.StatusDone, "", "")
+	hs := map[string]domain.WorkHistory{"paused": {Sessions: []domain.WorkSession{
+		{Start: at(7, 9), End: at(7, 10)}, {Start: at(10, 9), End: at(10, 10)},
+	}}}
+	buckets, days := WeekDays([]*domain.Task{paused}, hs, today, today)
+	for i, d := range days {
+		if got, want := has(buckets[d], "paused"), i == 0 || i == 3; got != want {
+			t.Errorf("%s: %v, want %v", d, got, want)
+		}
 	}
 }
 
@@ -125,7 +163,7 @@ func TestProjectCountsOrdersByOpenWork(t *testing.T) {
 		mk("infra", domain.StatusDoing), mk("infra", domain.StatusBlocked),
 		mk("log", domain.StatusTodo), mk("log", domain.StatusDone),
 	}
-	counts := ProjectCounts(all, today)
+	counts := ProjectCounts(all, today, 5)
 	if counts[0].Slug != "infra" || counts[0].Open != 2 || counts[0].Blocked != 1 {
 		t.Fatalf("counts[0] = %+v", counts[0])
 	}
@@ -134,98 +172,39 @@ func TestProjectCountsOrdersByOpenWork(t *testing.T) {
 	}
 }
 
-func TestSortPutsDoingAndOverdueFirst(t *testing.T) {
+// Priority decides the order, not a deadline: due is retired.
+func TestSortPutsDoingThenPriority(t *testing.T) {
 	all := []*domain.Task{
-		task("todo-later", domain.StatusTodo, "", "2026-09-30"),
-		task("todo-overdue", domain.StatusTodo, "", "2026-09-01"),
+		task("p2-due-soon", domain.StatusTodo, "", "2026-09-01"),
+		task("p1", domain.StatusTodo, "", ""),
 		task("doing", domain.StatusDoing, "", ""),
 	}
+	all[0].Priority, all[1].Priority = domain.P2, domain.P1
 	domain.SortDefault(all, today)
-	if all[0].ID != "doing" || all[1].ID != "todo-overdue" {
-		t.Fatalf("order = %v", ids(all))
+	if got := ids(all); got[0] != "doing" || got[1] != "p1" || got[2] != "p2-due-soon" {
+		t.Fatalf("order = %v", got)
 	}
 }
 
-// A 진행 기간 has to land on every day it covers, or the Week grid shows a
-// multi-day task as a single start-day card and the rest of the week looks free.
-func TestWeekDaysSpreadsSpanAcrossDays(t *testing.T) {
-	span := task("T-span", domain.StatusTodo, "2026-09-08", "2026-09-10") // 화~목
-	single := task("T-one", domain.StatusTodo, "2026-09-09", "")
-	buckets, days := WeekDays([]*domain.Task{span, single}, today)
-
-	for i, d := range days {
-		want := i >= 1 && i <= 3 // 월=0 이므로 화·수·목
-		if got := has(buckets[d], "T-span"); got != want {
-			t.Errorf("%s: 기간 태스크 포함 %v, want %v", d, got, want)
-		}
-	}
-	// 화요일에는 기간 태스크만, 수요일에는 둘 다.
-	if len(buckets[days[1]]) != 1 || len(buckets[days[2]]) != 2 || !has(buckets[days[2]], "T-one") {
-		t.Errorf("화 %v 수 %v", ids(buckets[days[1]]), ids(buckets[days[2]]))
-	}
-	if len(buckets[domain.Date{}]) != 0 {
-		t.Errorf("미배정 = %v", ids(buckets[domain.Date{}]))
-	}
-}
-
-// A period that runs into the week from outside still occupies the days it
-// covers inside it - the old code dropped such tasks into 미배정.
-func TestWeekDaysClipsSpanToTheWeek(t *testing.T) {
-	long := task("T-long", domain.StatusTodo, "2026-08-31", "2026-09-09")
-	buckets, days := WeekDays([]*domain.Task{long}, today)
-	for i, d := range days {
-		if got, want := has(buckets[d], "T-long"), i <= 2; got != want {
-			t.Errorf("%s: %v, want %v", d, got, want)
-		}
-	}
-}
-
-func TestWeekDaysKeepsUndatedInUnassigned(t *testing.T) {
-	doing := task("T-doing", domain.StatusDoing, "", "")
-	past := task("T-past", domain.StatusTodo, "2026-08-01", "2026-08-05")
-	buckets, _ := WeekDays([]*domain.Task{doing, past}, today)
-	lane := buckets[domain.Date{}]
-	if !has(lane, "T-doing") || !has(lane, "T-past") {
-		t.Fatalf("미배정 = %v", ids(lane))
-	}
-}
-
-// Paging to another week must not drag today's leftovers along: 다음 주 화면은
-// 다음 주의 계획이지 오늘의 잔업 목록이 아니다.
-func TestWeekDropsTodaysLeftoversOnOtherWeeks(t *testing.T) {
+// Paging to another week must not drag today's situation along: 다음 주 화면은
+// 다음 주에 꺼낼 일이지 오늘의 진행중·백로그가 아니다.
+func TestWeekDropsTodaysSituationOnOtherWeeks(t *testing.T) {
 	all := []*domain.Task{
-		task("overdue", domain.StatusTodo, "", "2026-08-30"),
+		task("backlog", domain.StatusTodo, "", ""),
 		task("floating-doing", domain.StatusDoing, "", ""),
 		task("next-week", domain.StatusTodo, "2026-09-14", ""),
 	}
 	next := domain.NewDate(2026, time.September, 14)
-	got := Week(all, next, today)
+	got := Week(all, nil, next, today)
 	if !has(got, "next-week") {
 		t.Errorf("다음 주 항목이 빠짐: %v", ids(got))
 	}
-	for _, gone := range []string{"overdue", "floating-doing"} {
+	for _, gone := range []string{"backlog", "floating-doing"} {
 		if has(got, gone) {
 			t.Errorf("%s 가 다음 주까지 따라옴: %v", gone, ids(got))
 		}
 	}
-	// 오늘이 든 주에서는 그대로 따라와야 한다.
-	if now := Week(all, today, today); !has(now, "overdue") || !has(now, "floating-doing") {
+	if now := Week(all, nil, today, today); !has(now, "backlog") || !has(now, "floating-doing") {
 		t.Errorf("이번 주에서 빠짐: %v", ids(now))
-	}
-}
-
-// A period that straddles the whole week has neither endpoint inside it; the
-// week still has to show it.
-func TestWeekIncludesSpanStraddlingTheWeek(t *testing.T) {
-	long := task("T-long", domain.StatusTodo, "2026-09-01", "2026-09-30")
-	got := Week([]*domain.Task{long}, today, today)
-	if !has(got, "T-long") {
-		t.Fatalf("week = %v", ids(got))
-	}
-	buckets, days := WeekDays(got, today)
-	for _, d := range days {
-		if !has(buckets[d], "T-long") {
-			t.Errorf("%s 에 없음", d)
-		}
 	}
 }

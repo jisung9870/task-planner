@@ -297,7 +297,8 @@ func TestPreviewReadsLikeAListRow(t *testing.T) {
 		Project: "task-planner", Priority: P1, Estimate: Duration(2 * time.Hour),
 		Scheduled: NewDate(2026, time.September, 15), Due: NewDate(2026, time.September, 19),
 	}
-	want := "○ #12 task_add 동시 호출 때 중복 생성  [task-planner · P1 · ~2h]  09-15~09-19 5일"
+	// Retired fields (estimate, due) stay out of the row; the 꺼낼 날 says when.
+	want := "○ #12 task_add 동시 호출 때 중복 생성  [task-planner · P1]  꺼냄 09-15"
 	if got := task.Preview(today); got != want {
 		t.Fatalf("Preview =\n%q\nwant\n%q", got, want)
 	}
@@ -310,9 +311,15 @@ func TestPreviewReadsLikeAListRow(t *testing.T) {
 		t.Fatalf("Preview = %q", got)
 	}
 
-	late := &Task{ID: "T-20260901-0003", Title: "청구서 확인", Status: StatusTodo,
-		Due: NewDate(2026, time.September, 10)}
-	if got := late.Preview(today); !strings.Contains(got, "!! 마감 2일 초과") {
+	waiting := &Task{ID: "T-20260901-0003", Title: "청구서 확인", Status: StatusTodo,
+		Scheduled: NewDate(2026, time.September, 7)}
+	if got := waiting.Preview(today); !strings.Contains(got, "꺼낸 지 5일") {
+		t.Fatalf("Preview = %q", got)
+	}
+
+	started := time.Date(2026, 9, 10, 9, 0, 0, 0, time.Local)
+	long := &Task{ID: "T-20260901-0004", Title: "이관", Status: StatusDoing, StartedAt: &started}
+	if got := long.Preview(today); !strings.Contains(got, "진행 3일째") {
 		t.Fatalf("Preview = %q", got)
 	}
 

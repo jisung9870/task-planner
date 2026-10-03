@@ -54,6 +54,11 @@ type Config struct {
 	// "it took a minute". Zero never asks.
 	BackfillUnder domain.Duration `yaml:"backfill_under,omitempty"`
 
+	// StaleDays is when a task reads as badly scoped: surfaced and not started
+	// for this many days, or running for this many. It replaced the rollover
+	// count, which only moved dates around to measure the same thing.
+	StaleDays int `yaml:"stale_days,omitempty"`
+
 	// Views are saved filter expressions the TUI binds to its view picker (v).
 	// They live in config rather than in a dotfile because they are part of how
 	// this vault is worked, and a vault is the thing people sync between
@@ -262,15 +267,14 @@ func Default(vault string) *Config {
 		DailyCapacity:  domain.Duration(6 * time.Hour),
 		SessionCap:     domain.Duration(8 * time.Hour),
 		BackfillUnder:  domain.Duration(10 * time.Minute),
+		StaleDays:      5,
 		// Seeds, not policy: they are the questions this tool was built to
 		// answer, and they are editable like any other config key.
 		Views: []View{
 			{Name: "진행중", Query: "status:doing"},
-			{Name: "마감 임박", Query: "is:duesoon"},
-			{Name: "마감 초과", Query: "is:overdue"},
-			{Name: "반복 이월", Query: "is:carried rollover>2"},
+			{Name: "오래 멈춤", Query: "is:stale"},
 			{Name: "보류", Query: "is:blocked"},
-			{Name: "날짜 없음", Query: "is:open is:unscheduled"},
+			{Name: "백로그", Query: "status:todo is:unscheduled"},
 		},
 		Git:    GitConfig{Remote: "origin"},
 		Agents: defaultAgents(),
@@ -324,6 +328,9 @@ func Load(vault string) (*Config, error) {
 	}
 	if cfg.SessionCap < 0 {
 		cfg.SessionCap = 0
+	}
+	if cfg.StaleDays <= 0 {
+		cfg.StaleDays = 5
 	}
 	if cfg.BackfillUnder < 0 {
 		cfg.BackfillUnder = 0

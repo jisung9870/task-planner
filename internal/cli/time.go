@@ -18,9 +18,9 @@ func newTimeCmd() *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "time",
-		Short: "예상 대비 실소요 집계",
-		Long: "진행중 전환 시점부터 벗어날 때까지를 누적한 실소요를 프로젝트별로 모은다.\n" +
-			"비율이 1보다 크면 예상이 낙관적이었다는 뜻이고, 그 감각을 교정하는 게 목적이다.",
+		Short: "프로젝트별 작업 시간 집계",
+		Long: "진행중 전환 시점부터 벗어날 때까지를 누적한 작업 시간을 프로젝트별로 모은다.\n" +
+			"한 세션은 session_cap 에서 자른다. 태스크 하나가 언제 시작해 얼마나 걸렸는지는 tp show.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withService(func(svc *service.Service) error {
 				var from, to domain.Date
@@ -55,7 +55,7 @@ func newTimeCmd() *cobra.Command {
 					period = fmt.Sprintf("%s ~ %s", from, to)
 				}
 				fmt.Fprintf(out, "기간: %s\n\n", period)
-				fmt.Fprintf(out, "%s %5s %9s %9s %7s\n", pad("프로젝트", 24), "건", "예상", "실소요", "비율")
+				fmt.Fprintf(out, "%s %5s %9s\n", pad("프로젝트", 24), "건", "작업 시간")
 				for _, r := range rows {
 					printTimeRow(cmd, r)
 				}
@@ -72,18 +72,10 @@ func newTimeCmd() *cobra.Command {
 }
 
 func printTimeRow(cmd *cobra.Command, r query.ProjectTime) {
-	ratio := "-"
-	if v := r.Ratio(); v > 0 {
-		ratio = fmt.Sprintf("%.2f", v)
-	}
-	est := r.Estimate.String()
-	if est == "" {
-		est = "-"
-	}
 	act := r.Actual.String()
 	if act == "" {
 		act = "-"
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "%s %5d %9s %9s %7s\n",
-		pad(query.ProjectLabel(r.Slug), 24), r.Tasks, est, act, ratio)
+	fmt.Fprintf(cmd.OutOrStdout(), "%s %5d %9s\n",
+		pad(query.ProjectLabel(r.Slug), 24), r.Tasks, act)
 }
