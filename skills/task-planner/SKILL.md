@@ -45,6 +45,8 @@ The same rules live in the task-planner design doc ("tier 를 고르는 기준�
 
 Append a dated note after a meaningful step, a changed plan, a blocker, or a validation result. Say what actually happened and include the relevant file, command outcome, error, or artifact reference. Keep notes brief; the task is a progress record, while code and documents remain the source for current implementation. Do not write speculative success, sensitive values, or a transcript of every tool call. If the user changes scope, update the active task's plan in a note before continuing.
 
+Do not send `due`, `estimate` or `span`: the vault no longer plans by them, and time is read from the doing→done record. If the task was not marked `doing` when the work began, pass the real start as `since` with `task_status` done (`tp done <ref> --since 10:30`).
+
 At the end, record the delivered result and verification, then set `done` only when the requested work is complete. Use `blocked` with the specific dependency if work cannot continue, or `cancelled` if the user abandons it. If the session ends unexpectedly, an old `doing` state proves only that no closing update was recorded: inspect the artifacts and resume or correct its status. If tp is unavailable, continue authorized work and tell the user which record could not be written.
 
 Never modify task Markdown directly. The user can inspect the same vault with `tp` (TUI), press `F` to switch human → agent → all, or run `tp list 'executor:agent'`.
