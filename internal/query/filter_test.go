@@ -209,3 +209,36 @@ func TestProjectCountsProgressExcludesCancelled(t *testing.T) {
 		t.Fatalf("%+v", c)
 	}
 }
+
+func TestAgentTerms(t *testing.T) {
+	mine := task("mine", domain.StatusTodo, "", "")
+	mine.Agent, mine.Tier = "claude", domain.TierDeep
+	anyone := task("anyone", domain.StatusTodo, "", "")
+	anyone.Agent = domain.AgentAuto
+	taken := task("taken", domain.StatusDoing, "", "")
+	taken.Agent, taken.ClaimedBy = "claude", "claude:s1"
+	theirs := task("theirs", domain.StatusTodo, "", "")
+	theirs.Agent = "codex"
+	human := task("human", domain.StatusTodo, "", "")
+	all := []*domain.Task{mine, anyone, taken, theirs, human}
+
+	apply := func(expr string) []string {
+		t.Helper()
+		f, err := ParseFilter(expr, today)
+		if err != nil {
+			t.Fatalf("%q: %v", expr, err)
+		}
+		return ids(f.Apply(all, today, 3))
+	}
+	eq(t, apply("agent:claude"), "mine", "taken")
+	eq(t, apply("agent:none"), "human")
+	eq(t, apply("tier:deep"), "mine")
+	eq(t, apply("is:claimed"), "taken")
+	eq(t, apply("pick:claude"), "mine", "anyone")
+	eq(t, apply("pick:codex"), "anyone", "theirs")
+	for _, bad := range []string{"pick:auto", "tier:huge", "agent:a:b"} {
+		if _, err := ParseFilter(bad, today); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+}

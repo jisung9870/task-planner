@@ -189,6 +189,37 @@ func parseTerm(tok string, today domain.Date) (term, error) {
 			return t, err
 		}
 		t.match = func(task *domain.Task, _ domain.Date, _ int) bool { return task.Executor.Effective() == want }
+	case "agent":
+		v := strings.ToLower(value)
+		if v == "none" || v == "any" {
+			want := v == "any"
+			t.match = func(task *domain.Task, _ domain.Date, _ int) bool { return (task.Agent != "") == want }
+			break
+		}
+		a, err := domain.ParseAgent(v)
+		if err != nil {
+			return t, err
+		}
+		t.match = func(task *domain.Task, _ domain.Date, _ int) bool { return task.Agent == a }
+	case "tier":
+		v := strings.ToLower(value)
+		if v == "none" {
+			t.match = func(task *domain.Task, _ domain.Date, _ int) bool { return task.Tier == "" }
+			break
+		}
+		tr, err := domain.ParseTier(v)
+		if err != nil || tr == "" {
+			return t, fmt.Errorf("tier 는 fast|standard|deep|none 이어야 함: %q", value)
+		}
+		t.match = func(task *domain.Task, _ domain.Date, _ int) bool { return task.Tier == tr }
+	case "pick":
+		// pick:<agent> is the pull query a session runs for its own share. The
+		// predicate lives in domain so claim and query cannot disagree.
+		a, err := domain.ParseAgent(value)
+		if err != nil || a == "" || a == domain.AgentAuto {
+			return t, fmt.Errorf("pick 값은 agent 이름이어야 함: %q", value)
+		}
+		t.match = func(task *domain.Task, _ domain.Date, _ int) bool { return task.Pickable(a) }
 	case "tag", "t":
 		want := value
 		t.match = func(task *domain.Task, _ domain.Date, _ int) bool { return task.HasTag(want) }
@@ -231,7 +262,7 @@ func parseTerm(tok string, today domain.Date) (term, error) {
 			return strings.Contains(strings.ToLower(task.ID), want)
 		}
 	default:
-		return t, fmt.Errorf("알 수 없는 필드: %q (status|project|tag|priority|due|scheduled|rollover|is|id|body)", field)
+		return t, fmt.Errorf("알 수 없는 필드: %q (status|project|executor|agent|tier|pick|tag|priority|due|scheduled|rollover|is|id|body)", field)
 	}
 	return t, nil
 }
@@ -342,8 +373,12 @@ func isTerm(value string) (func(*domain.Task, domain.Date, int) bool, error) {
 		return func(t *domain.Task, _ domain.Date, _ int) bool { return t.Scheduled.IsZero() }, nil
 	case "recurring", "반복":
 		return func(t *domain.Task, _ domain.Date, _ int) bool { return t.Recur != "" }, nil
+	case "claimed":
+		return func(t *domain.Task, _ domain.Date, _ int) bool { return t.ClaimedBy != "" }, nil
+	case "unclaimed":
+		return func(t *domain.Task, _ domain.Date, _ int) bool { return t.ClaimedBy == "" }, nil
 	}
-	return nil, fmt.Errorf("알 수 없는 is 값: %q (open|closed|overdue|duesoon|blocked|carried|unscheduled|recurring)", value)
+	return nil, fmt.Errorf("알 수 없는 is 값: %q (open|closed|overdue|duesoon|blocked|carried|unscheduled|recurring|claimed|unclaimed)", value)
 }
 
 func compareDate(got domain.Date, op cmp, want domain.Date) bool {
