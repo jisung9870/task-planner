@@ -83,15 +83,16 @@ func (t *Task) Transition(to Status, at time.Time, opts *TransitionOpts) error {
 		t.ClaimedBy = ""
 	}
 
-	timerFrom := from
+	timerFrom, timerAt := from, at
 	if opts.Since != nil {
 		// The work ran from Since whatever the timer said: close it as one
-		// session from there.
-		since := *opts.Since
+		// session from there. Both ends sit on the minute, as the log prints
+		// them, so 작업 시간 and the 걸린 기간 read back from the log agree.
+		since := opts.Since.Truncate(time.Minute)
 		t.StartedAt = &since
-		timerFrom = StatusDoing
+		timerFrom, timerAt = StatusDoing, at.Truncate(time.Minute)
 	}
-	capped := t.applyTimer(timerFrom, to, at, opts.SessionCap)
+	capped := t.applyTimer(timerFrom, to, timerAt, opts.SessionCap)
 
 	t.Status = to
 	t.Updated = today

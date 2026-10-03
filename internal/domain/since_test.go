@@ -147,3 +147,32 @@ func TestLeadLabelDistinguishesPausedFromRunning(t *testing.T) {
 		t.Errorf("done = %q", got)
 	}
 }
+
+// "2h" means two hours on both clocks: 작업 시간 and the 걸린 기간 read back
+// from the minute-resolution log.
+func TestRelativeSinceAgreesOnBothClocks(t *testing.T) {
+	task := &Task{ID: "T-1", Title: "x", Status: StatusTodo}
+	since, err := ParseSince("2h", sinceNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := task.Transition(StatusDone, sinceNow, &TransitionOpts{Since: &since}); err != nil {
+		t.Fatal(err)
+	}
+	start, end, _ := task.WorkHistory(time.Local).Lead()
+	if task.Actual.String() != "2h" || SpanText(end.Sub(start)) != "2h" {
+		t.Fatalf("actual=%s lead=%s", task.Actual, SpanText(end.Sub(start)))
+	}
+}
+
+func TestAbsoluteSinceAgreesOnBothClocks(t *testing.T) {
+	task := &Task{ID: "T-1", Title: "x", Status: StatusTodo}
+	since, _ := ParseSince("10:30", sinceNow) // now 12:28:30
+	if err := task.Transition(StatusDone, sinceNow, &TransitionOpts{Since: &since}); err != nil {
+		t.Fatal(err)
+	}
+	start, end, _ := task.WorkHistory(time.Local).Lead()
+	if task.Actual.String() != "1h58m" || SpanText(end.Sub(start)) != "1h58m" {
+		t.Fatalf("actual=%s lead=%s", task.Actual, SpanText(end.Sub(start)))
+	}
+}
