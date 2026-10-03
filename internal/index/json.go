@@ -214,7 +214,7 @@ func (x *JSON) Flush() error {
 	if !x.dirty {
 		return nil
 	}
-	unlock, err := lockFile(filepath.Join(x.dir, lockName))
+	unlock, err := store.LockFile(filepath.Join(x.dir, lockName))
 	if err != nil {
 		return fmt.Errorf("인덱스 잠금 실패: %w", err)
 	}

@@ -15,6 +15,8 @@ type AddInput struct {
 	Title     string
 	Project   string
 	Executor  domain.Executor
+	Agent     domain.Agent
+	Tier      domain.Tier
 	Priority  domain.Priority
 	Status    domain.Status
 	Scheduled domain.Date
@@ -41,6 +43,13 @@ func (s *Service) Add(in AddInput) (*domain.Task, error) {
 	if _, err := domain.ParseExecutor(string(in.Executor)); err != nil {
 		return nil, err
 	}
+	executor, err := s.executorFor(in.Executor, in.Agent)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := domain.ParseTier(string(in.Tier)); err != nil {
+		return nil, err
+	}
 	today := s.Today()
 	seq, err := s.nextSeq()
 	if err != nil {
@@ -55,7 +64,9 @@ func (s *Service) Add(in AddInput) (*domain.Task, error) {
 		Title:     title,
 		Status:    domain.StatusTodo,
 		Project:   strings.TrimSpace(in.Project),
-		Executor:  in.Executor,
+		Executor:  executor,
+		Agent:     in.Agent,
+		Tier:      in.Tier,
 		Priority:  in.Priority,
 		Created:   today,
 		Updated:   today,
@@ -81,6 +92,30 @@ func (s *Service) Add(in AddInput) (*domain.Task, error) {
 	}
 	s.recordChange(t.ShortID()+" 추가", fmt.Sprintf("%s %s: 추가", t.ID, t.Title))
 	return t, nil
+}
+
+// executorFor applies the rule that naming an agent makes the task agent work.
+// Asking for a human task that names an agent is a contradiction, not a
+// preference to pick one side of.
+func (s *Service) executorFor(e domain.Executor, a domain.Agent) (domain.Executor, error) {
+	if a == "" {
+		return e, nil
+	}
+	if !s.Cfg.Agents.Allows(a) {
+		return "", fmt.Errorf("허용되지 않은 agent: %s (config.yaml agents.allowed: %s)", a, s.allowedList())
+	}
+	if e == domain.ExecutorHuman {
+		return "", fmt.Errorf("agent 를 지정한 일은 executor 가 agent 여야 함 (human 과 함께 쓸 수 없음)")
+	}
+	return domain.ExecutorAgent, nil
+}
+
+func (s *Service) allowedList() string {
+	names := make([]string, len(s.Cfg.Agents.Allowed))
+	for i, a := range s.Cfg.Agents.Allowed {
+		names[i] = string(a)
+	}
+	return strings.Join(names, ", ")
 }
 
 // AddWithResult is Add plus the advisory the caller should surface (currently
@@ -229,6 +264,8 @@ type EditInput struct {
 	Title     *string
 	Project   *string
 	Executor  *domain.Executor
+	Agent     *domain.Agent
+	Tier      *domain.Tier
 	Priority  *domain.Priority
 	Scheduled *domain.Date
 	Due       *domain.Date
@@ -241,7 +278,8 @@ type EditInput struct {
 // Any reports whether the input would change anything. The CLI needs it to
 // tell "지정한 필드가 없다" from "지정했는데 값이 같다".
 func (in EditInput) Any() bool {
-	return in.Title != nil || in.Project != nil || in.Executor != nil || in.Priority != nil ||
+	return in.Title != nil || in.Project != nil || in.Executor != nil || in.Agent != nil ||
+		in.Tier != nil || in.Priority != nil ||
 		in.Scheduled != nil || in.Due != nil || in.Estimate != nil ||
 		in.Tags != nil || in.Links != nil || in.Recur != nil
 }
@@ -267,6 +305,31 @@ func (s *Service) Edit(ref string, in EditInput) (*Result, error) {
 		}
 		changes = append(changes, "executor="+string(*in.Executor))
 		t.Executor = *in.Executor
+	}
+	if in.Agent != nil && *in.Agent != t.Agent {
+		e := t.Executor
+		if in.Executor != nil {
+			e = *in.Executor
+		} else if *in.Agent != "" {
+			e = ""
+		}
+		exec, err := s.executorFor(e, *in.Agent)
+		if err != nil {
+			return nil, err
+		}
+		changes = append(changes, "agent="+string(*in.Agent))
+		t.Agent = *in.Agent
+		if exec != "" && exec != t.Executor.Effective() {
+			changes = append(changes, "executor="+string(exec))
+			t.Executor = exec
+		}
+	}
+	if in.Tier != nil && *in.Tier != t.Tier {
+		if _, err := domain.ParseTier(string(*in.Tier)); err != nil {
+			return nil, err
+		}
+		changes = append(changes, "tier="+string(*in.Tier))
+		t.Tier = *in.Tier
 	}
 	if in.Priority != nil && *in.Priority != t.Priority {
 		changes = append(changes, "priority="+string(*in.Priority))
@@ -300,6 +363,9 @@ func (s *Service) Edit(ref string, in EditInput) (*Result, error) {
 		}
 		changes = append(changes, "recur="+*in.Recur)
 		t.Recur = *in.Recur
+	}
+	if t.Agent != "" && t.Executor.Effective() == domain.ExecutorHuman {
+		return nil, fmt.Errorf("agent(%s) 가 지정된 일은 human 이 될 수 없음 — agent 를 함께 비울 것", t.Agent)
 	}
 	if len(changes) == 0 {
 		return &Result{Task: t}, nil

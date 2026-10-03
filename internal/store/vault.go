@@ -35,6 +35,16 @@ func (v *Vault) ReportsDir() string  { return filepath.Join(v.root, DirReports) 
 func (v *Vault) IndexDir() string    { return filepath.Join(v.root, DirIndex) }
 func (v *Vault) InboxPath() string   { return filepath.Join(v.root, FileInbox) }
 
+// Lock takes a vault-wide advisory lock for a read-check-write that other
+// processes must not interleave with. It lives under .index because it is
+// runtime state, recreated on demand like everything else there.
+func (v *Vault) Lock(name string) (func(), error) {
+	if err := os.MkdirAll(v.IndexDir(), 0o755); err != nil {
+		return nil, err
+	}
+	return LockFile(filepath.Join(v.IndexDir(), name+".lock"))
+}
+
 // Init creates the directory skeleton. Safe to call repeatedly.
 func (v *Vault) Init() error {
 	for _, d := range []string{v.root, v.TasksDir(), v.ProjectsDir(), v.ArchiveDir(), v.ReportsDir(), v.IndexDir()} {

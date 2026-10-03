@@ -36,6 +36,8 @@ func (s *Service) spawnNextOccurrence(finished *domain.Task) (*domain.Task, erro
 		Project:  finished.Project,
 		Executor: finished.Executor,
 		Priority: finished.Priority,
+		Agent:    finished.Agent,
+		Tier:     finished.Tier,
 		Estimate: finished.Estimate,
 		Tags:     finished.Tags,
 		Links:    finished.Links,
