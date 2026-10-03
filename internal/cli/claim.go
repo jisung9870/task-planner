@@ -3,6 +3,7 @@ package cli
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -106,4 +107,53 @@ func randomHex() string {
 		return "0"
 	}
 	return hex.EncodeToString(b)
+}
+
+// agentsJSON is what `tp agents --json` emits: the one table other tools (나루)
+// read instead of keeping a copy, so tiers mean the same model everywhere.
+type agentsJSON struct {
+	Allowed []string                     `json:"allowed"`
+	Source  string                       `json:"source"`
+	Models  map[string]map[string]string `json:"models"`
+}
+
+func newAgentsCmd() *cobra.Command {
+	var asJSON bool
+	cmd := &cobra.Command{
+		Use:   "agents",
+		Short: "허용 agent 와 등급별 모델 표",
+		Long: `이 장비·vault 에서 허용되는 agent, 그 목록을 정한 곳, tier 별 모델을 보여준다.
+정하는 순서: $TP_AGENTS > config.yaml agents.allowed > PATH 의 CLI > 둘 다.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return withService(func(svc *service.Service) error {
+				ag := svc.Cfg.Agents
+				out := agentsJSON{Allowed: []string{}, Source: string(ag.Source), Models: map[string]map[string]string{}}
+				for _, a := range ag.Allowed {
+					out.Allowed = append(out.Allowed, string(a))
+				}
+				for a, tiers := range ag.Models {
+					m := map[string]string{}
+					for tier, model := range tiers {
+						m[string(tier)] = model
+					}
+					out.Models[string(a)] = m
+				}
+				w := cmd.OutOrStdout()
+				if asJSON {
+					enc := json.NewEncoder(w)
+					enc.SetIndent("", "  ")
+					return enc.Encode(out)
+				}
+				fmt.Fprintf(w, "허용: %s\n", ag.Describe())
+				for _, a := range out.Allowed {
+					m := out.Models[a]
+					fmt.Fprintf(w, "  %-7s fast=%s  standard=%s  deep=%s\n", a, m["fast"], m["standard"], m["deep"])
+				}
+				return nil
+			})
+		},
+	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "JSON 으로 출력 (다른 도구용)")
+	return cmd
 }

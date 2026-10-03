@@ -82,6 +82,7 @@ tp                                      # TUI 열기
 | | `tp set 1 --agent codex --tier deep` | [실행 agent·모델 등급](#실행-agent-지정과-가져가기) |
 | 실행 | `tp claim --agent claude --session s1` | agent 몫 중 가장 급한 일을 가져감 (진행중으로) |
 | | `tp release 1 --agent claude --session s1` | 가져간 일을 놓음. 남의 claim 은 `--force` |
+| | `tp agents [--json]` | 허용 agent·출처·등급별 모델 표 (나루가 `--json` 으로 읽음) |
 | | `tp projects set infra --due +2w` | 프로젝트 마감(마일스톤)·상태 |
 | 관리 | `tp archive --dry-run` | 오래된 완료분 정리 (기본 30일) |
 | | `tp index --rebuild` | 인덱스 재생성 |
