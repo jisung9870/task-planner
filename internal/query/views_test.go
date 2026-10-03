@@ -208,3 +208,21 @@ func TestWeekDropsTodaysSituationOnOtherWeeks(t *testing.T) {
 		t.Errorf("이번 주에서 빠짐: %v", ids(now))
 	}
 }
+
+// Surfaced before this week and never started: rollover used to drag it onto
+// today; now Week must show it there itself.
+func TestWeekShowsWorkSurfacedBeforeTheWeekOnToday(t *testing.T) {
+	old := task("old", domain.StatusTodo, "2026-09-01", "")
+	got := Week([]*domain.Task{old}, nil, today, today)
+	if !has(got, "old") {
+		t.Fatalf("week = %v", ids(got))
+	}
+	buckets, _ := WeekDays(got, nil, today, today)
+	if !has(buckets[today], "old") {
+		t.Fatalf("today = %v, lane = %v", ids(buckets[today]), ids(buckets[domain.Date{}]))
+	}
+	next := domain.NewDate(2026, time.September, 14)
+	if has(Week([]*domain.Task{old}, nil, next, today), "old") {
+		t.Fatal("followed to another week")
+	}
+}

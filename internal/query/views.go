@@ -48,6 +48,10 @@ func Week(all []*domain.Task, hs map[string]domain.WorkHistory, ref, today domai
 		case current && Backlog(t):
 		case t.Status == domain.StatusTodo && !t.Scheduled.IsZero() &&
 			!t.Scheduled.Before(start) && !t.Scheduled.After(end):
+		// Surfaced before this week and still not started: today's work, and
+		// the stale kind the week most needs to show. Rollover used to drag
+		// these onto today; now the view has to.
+		case current && t.Status == domain.StatusTodo && !t.Scheduled.IsZero() && t.Scheduled.Before(start):
 		case workedWithin(hs[t.ID], start, end, today):
 		default:
 			continue
@@ -86,7 +90,8 @@ func WeekDays(ts []*domain.Task, hs map[string]domain.WorkHistory, ref, today do
 		placed := false
 		h := hs[t.ID]
 		for _, d := range days {
-			if h.InDay(d, today) || (t.Status == domain.StatusTodo && t.Scheduled.Equal(d)) {
+			if h.InDay(d, today) || (t.Status == domain.StatusTodo && t.Scheduled.Equal(d)) ||
+				(t.Status == domain.StatusTodo && d.Equal(today) && t.Scheduled.Before(start) && !t.Scheduled.IsZero()) {
 				buckets[d] = append(buckets[d], t)
 				placed = true
 			}

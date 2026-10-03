@@ -94,3 +94,21 @@ func TestDoneDoesNotAskForAgentWork(t *testing.T) {
 		t.Fatalf("status = %s", full.Status)
 	}
 }
+
+// Moving a finished card on Week would rewrite its 꺼낼 날 without moving it.
+func TestWeekMoveSkipsNonTodoCards(t *testing.T) {
+	m, svc := sinceModel(t)
+	task, _ := svc.Add(service.AddInput{Title: "끝난 일", Scheduled: svc.Today()})
+	svc.Done(task.ID)
+	m.tab = tabWeek
+	m.reload()
+	m.marked = map[string]bool{task.ID: true}
+	m.updateNormal(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'L'}})
+	full, _ := svc.Load(task.ID)
+	if !full.Scheduled.Equal(svc.Today()) || strings.Contains(full.Body, "edit: scheduled") {
+		t.Fatalf("done task rewritten: scheduled=%s", full.Scheduled)
+	}
+	if !strings.Contains(m.status, "옮기지 않음") {
+		t.Fatalf("status = %q", m.status)
+	}
+}

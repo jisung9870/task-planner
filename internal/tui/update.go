@@ -384,7 +384,7 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "L":
 		m.moveCard(1)
 	case "[", "]":
-		m.shiftScheduled(map[string]int{"[": -1, "]": 1}[msg.String()])
+		m.shiftTodoScheduled(map[string]int{"[": -1, "]": 1}[msg.String()])
 	case "g", "home":
 		m.cursor, m.rowCursor = 0, 0
 		m.clampCursor()
@@ -1139,7 +1139,7 @@ func (m *Model) moveCard(delta int) {
 		return
 	}
 	if m.tab == tabWeek {
-		m.shiftScheduled(delta)
+		m.shiftTodoScheduled(delta)
 		return
 	}
 	ts := m.targets()
@@ -1267,21 +1267,36 @@ func (m *Model) selectID(id string) {
 	m.clampCursor()
 }
 
-// shiftScheduled moves the day each target surfaces by n days - the
-// re-planning gesture ("이건 하루 밀자"). A task with no date gets today first,
-// so the first press pulls it out of the backlog instead of jumping blindly.
-func (m *Model) shiftScheduled(days int) {
+// shiftTodoScheduled moves the 꺼낼 날 of 대기중 targets a day ([ ], and H/L on
+// Week). Running, held and finished work has already surfaced - on Week it
+// sits where the log says it happened - so rewriting its date would change a
+// file without moving anything; those are skipped and the status line says so.
+func (m *Model) shiftTodoScheduled(delta int) {
 	ts := m.targets()
-	if len(ts) == 0 {
-		return
+	var todo []*domain.Task
+	for _, t := range ts {
+		if t.Status == domain.StatusTodo {
+			todo = append(todo, t)
+		}
 	}
-	verb := "꺼낼 날 하루 뒤로"
-	if days < 0 {
-		verb = "꺼낼 날 하루 앞으로"
+	skipped := len(ts) - len(todo)
+	if len(todo) > 0 {
+		verb := "꺼낼 날 하루 뒤로"
+		if delta < 0 {
+			verb = "꺼낼 날 하루 앞으로"
+		}
+		m.scheduledMutate(m.bulkLabel(todo, verb), todo, func(t *domain.Task) (*service.Result, error) {
+			return m.svc.ShiftScheduled(t.ID, delta)
+		})
 	}
-	m.scheduledMutate(m.bulkLabel(ts, verb), ts, func(t *domain.Task) (*service.Result, error) {
-		return m.svc.ShiftScheduled(t.ID, days)
-	})
+	if skipped > 0 {
+		note := fmt.Sprintf("대기중이 아닌 %d건은 이미 꺼낸 일이라 옮기지 않음", skipped)
+		if len(todo) == 0 {
+			m.setStatus("%s", note)
+		} else {
+			m.status += "  · " + note
+		}
+	}
 }
 
 // setScheduled applies a typed day ("mon", "10-20", "-" to clear).

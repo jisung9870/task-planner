@@ -71,7 +71,7 @@ var retiredKeys = []string{"auto_rollover", "rollover_warn_at", "due_soon_days",
 
 // retiredViewTerms are filter terms that only match retired fields. A saved
 // view using them still parses but finds only old data.
-var retiredViewTerms = []string{"is:overdue", "is:duesoon", "is:carried", "rollover", "due:", "due<", "due>"}
+var retiredViewTerms = []string{"is:overdue", "is:duesoon", "is:carried", "rollover:", "rollover<", "rollover>", "due:", "due<", "due>"}
 
 func (cfg *Config) noteRetired(raw []byte) {
 	var keys map[string]any
