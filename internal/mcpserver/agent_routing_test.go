@@ -15,6 +15,9 @@ import (
 func TestClaimFlowOverMCP(t *testing.T) {
 	cs, _ := newTestSession(t)
 	info := call(t, cs, "vault_info", nil)
+	if info["agents_source"] != "default" {
+		t.Fatalf("agents_source = %v", info["agents_source"])
+	}
 	if info["session"] == "" || info["models"].(map[string]any)["claude"].(map[string]any)["deep"] != "opus" {
 		t.Fatalf("vault_info = %v", info)
 	}

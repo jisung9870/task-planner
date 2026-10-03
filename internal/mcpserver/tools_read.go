@@ -19,9 +19,10 @@ type vaultInfoOut struct {
 	Mode string `json:"mode" jsonschema:"shared (한 vault에서 executor 필드로 구분)"`
 	// Agents is the table a session needs to turn a task's agent·tier into a
 	// model without reading config.yaml itself.
-	Agents  []string                     `json:"agents" jsonschema:"태스크에 지정할 수 있는 agent (auto 는 이 중 누구든)"`
-	Models  map[string]map[string]string `json:"models" jsonschema:"agent별 tier(fast|standard|deep) → 모델"`
-	Session string                       `json:"session" jsonschema:"task_claim 이 session 생략 시 쓰는 이 연결의 식별자"`
+	Agents       []string                     `json:"agents" jsonschema:"태스크에 지정할 수 있는 agent (auto 는 이 중 누구든)"`
+	AgentsSource string                       `json:"agents_source" jsonschema:"agents 를 정한 곳: env($TP_AGENTS, 이 장비) | config(vault config.yaml) | detected(PATH 의 CLI) | default"`
+	Models       map[string]map[string]string `json:"models" jsonschema:"agent별 tier(fast|standard|deep) → 모델"`
+	Session      string                       `json:"session" jsonschema:"task_claim 이 session 생략 시 쓰는 이 연결의 식별자"`
 }
 
 type weekArgs struct {
@@ -141,7 +142,8 @@ func (s *Server) registerReadTools() {
 		Description: "연결된 공유 vault 경로를 확인. 에이전트 수행 작업은 task_add executor=agent로 기록한다.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, _ any) (*mcp.CallToolResult, vaultInfoOut, error) {
 		ag := s.svc.Cfg.Agents
-		out := vaultInfoOut{Path: s.svc.Cfg.Vault, Mode: "shared", Session: s.session, Models: map[string]map[string]string{}}
+		out := vaultInfoOut{Path: s.svc.Cfg.Vault, Mode: "shared", Session: s.session,
+			AgentsSource: string(ag.Source), Models: map[string]map[string]string{}}
 		for _, a := range ag.Allowed {
 			out.Agents = append(out.Agents, string(a))
 		}
