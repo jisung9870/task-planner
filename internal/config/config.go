@@ -32,18 +32,6 @@ type Config struct {
 	// WIPLimit warns (never blocks) when too many tasks are in progress.
 	WIPLimit int `yaml:"wip_limit,omitempty"`
 
-	// AutoRollover moves yesterday's unfinished work onto today at startup.
-	AutoRollover bool `yaml:"auto_rollover"`
-	// RolloverWarnAt is the carry count that marks a task as badly scoped.
-	RolloverWarnAt int `yaml:"rollover_warn_at,omitempty"`
-
-	// DueSoonDays controls the deadline warning window in list views.
-	DueSoonDays int `yaml:"due_soon_days,omitempty"`
-
-	// DailyCapacity is how much work a day is expected to hold. It drives the
-	// over-commitment warning; it is a planning number, not a time sheet.
-	DailyCapacity domain.Duration `yaml:"daily_capacity,omitempty"`
-
 	// SessionCap bounds one 진행중 session when computing actual time. A task
 	// left running overnight would otherwise record the whole night.
 	SessionCap domain.Duration `yaml:"session_cap,omitempty"`
@@ -70,6 +58,49 @@ type Config struct {
 	// Agents is the one table both a plain session and 나루 read to decide who
 	// may take a task and which model a tier means.
 	Agents AgentsConfig `yaml:"agents"`
+
+	// Warnings name what the file asked for that this version no longer does.
+	// Adapters show them once; nothing fails over them.
+	Warnings []string `yaml:"-"`
+}
+
+// retiredKeys went with due, estimate and rollover (2026-10-03, 기획서 "시간:
+// 계획이 아니라 기록"). A vault config still setting them loads fine and says
+// so, instead of letting the user wonder why a capacity line disappeared.
+var retiredKeys = []string{"auto_rollover", "rollover_warn_at", "due_soon_days", "daily_capacity"}
+
+// retiredViewTerms are filter terms that only match retired fields. A saved
+// view using them still parses but finds only old data.
+var retiredViewTerms = []string{"is:overdue", "is:duesoon", "is:carried", "rollover", "due:", "due<", "due>"}
+
+func (cfg *Config) noteRetired(raw []byte) {
+	var keys map[string]any
+	if yaml.Unmarshal(raw, &keys) != nil {
+		return
+	}
+	var gone []string
+	for _, k := range retiredKeys {
+		if _, ok := keys[k]; ok {
+			gone = append(gone, k)
+		}
+	}
+	if len(gone) > 0 {
+		cfg.Warnings = append(cfg.Warnings,
+			fmt.Sprintf("더 이상 쓰지 않는 설정 %s — 지워도 됩니다", strings.Join(gone, ", ")))
+	}
+	var views []string
+	for _, v := range cfg.Views {
+		for _, term := range retiredViewTerms {
+			if strings.Contains(v.Query, term) {
+				views = append(views, v.Name)
+				break
+			}
+		}
+	}
+	if len(views) > 0 {
+		cfg.Warnings = append(cfg.Warnings,
+			fmt.Sprintf("저장된 뷰 %s 는 폐지된 마감·이월 필드를 찾습니다 — 옛 기록만 나옵니다", strings.Join(views, ", ")))
+	}
 }
 
 // AgentsConfig lists the agents a task may name and the model each tier maps
@@ -259,15 +290,11 @@ type GitConfig struct {
 // Default returns the baseline config for a vault path.
 func Default(vault string) *Config {
 	return &Config{
-		Vault:          vault,
-		WIPLimit:       3,
-		AutoRollover:   true,
-		RolloverWarnAt: 3,
-		DueSoonDays:    3,
-		DailyCapacity:  domain.Duration(6 * time.Hour),
-		SessionCap:     domain.Duration(8 * time.Hour),
-		BackfillUnder:  domain.Duration(10 * time.Minute),
-		StaleDays:      5,
+		Vault:         vault,
+		WIPLimit:      3,
+		SessionCap:    domain.Duration(8 * time.Hour),
+		BackfillUnder: domain.Duration(10 * time.Minute),
+		StaleDays:     5,
 		// Seeds, not policy: they are the questions this tool was built to
 		// answer, and they are editable like any other config key.
 		Views: []View{
@@ -312,6 +339,7 @@ func Load(vault string) (*Config, error) {
 		if err := yaml.Unmarshal(raw, cfg); err != nil {
 			return nil, fmt.Errorf("%s 파싱 실패: %w", path, err)
 		}
+		cfg.noteRetired(raw)
 	}
 	cfg.Vault = vault
 	if err := cfg.Agents.normalize(); err != nil {
@@ -319,12 +347,6 @@ func Load(vault string) (*Config, error) {
 	}
 	if cfg.WIPLimit < 0 {
 		cfg.WIPLimit = 0
-	}
-	if cfg.RolloverWarnAt <= 0 {
-		cfg.RolloverWarnAt = 3
-	}
-	if cfg.DueSoonDays <= 0 {
-		cfg.DueSoonDays = 3
 	}
 	if cfg.SessionCap < 0 {
 		cfg.SessionCap = 0
@@ -334,9 +356,6 @@ func Load(vault string) (*Config, error) {
 	}
 	if cfg.BackfillUnder < 0 {
 		cfg.BackfillUnder = 0
-	}
-	if cfg.DailyCapacity < 0 {
-		cfg.DailyCapacity = 0
 	}
 	return cfg, nil
 }

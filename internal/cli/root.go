@@ -55,7 +55,6 @@ func newRoot() *cobra.Command {
 		newReleaseCmd(),
 		newAgentsCmd(),
 		newArchiveCmd(),
-		newRolloverCmd(),
 		newReportCmd(),
 		newTimeCmd(),
 		newGitCmd(),
@@ -89,5 +88,9 @@ func withService(fn func(*service.Service) error) error {
 		return err
 	}
 	defer svc.Close()
+	// stderr, never stdout: tp mcp speaks JSON-RPC on stdout.
+	for _, w := range svc.Cfg.Warnings {
+		fmt.Fprintln(os.Stderr, "주의(config.yaml): "+w)
+	}
 	return fn(svc)
 }

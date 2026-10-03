@@ -20,8 +20,8 @@ Claude Code 등록:
   claude mcp add -s user task-planner -- tp mcp   # 모든 프로젝트에서
 
 제공 도구: vault_info, task_today, task_week, task_query, task_get, summary, project_status,
-time_summary, report_week (읽기) / task_add, task_status, task_skip, task_edit,
-rollover (쓰기). 삭제는 제공하지 않는다 — 접을 일은 cancelled 로 처리하고,
+task_next, time_summary, report_week (읽기) / task_add, task_status, task_skip, task_edit,
+task_note, task_claim, task_release, project_create, project_set, archive (쓰기). 삭제는 제공하지 않는다 — 접을 일은 cancelled 로 처리하고,
 파일 삭제는 사람이 CLI 에서 한다.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withService(func(svc *service.Service) error {

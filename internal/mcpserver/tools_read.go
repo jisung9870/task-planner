@@ -8,7 +8,6 @@ import (
 
 	"task-planner/internal/domain"
 	"task-planner/internal/query"
-	"task-planner/internal/service"
 )
 
 type taskListOut struct {
@@ -92,25 +91,6 @@ type nextOut struct {
 
 type nextRowsOut struct {
 	Rows []nextOut `json:"rows"`
-}
-
-type loadArgs struct {
-	Date string `json:"date,omitempty" jsonschema:"기준 날짜. 생략 시 오늘"`
-	Week bool   `json:"week,omitempty" jsonschema:"true 면 그 날짜가 포함된 주의 7일치를 반환"`
-}
-
-type loadOut struct {
-	Date      string `json:"date"`
-	Weekday   string `json:"weekday"`
-	Planned   string `json:"planned" jsonschema:"그 날 기간이 걸친 열린 태스크들의 예상 소요 합. 여러 날짜리는 기간으로 나눈 몫만 계산"`
-	Limit     string `json:"limit,omitempty" jsonschema:"config 의 daily_capacity"`
-	Tasks     int    `json:"tasks"`
-	Estimated int    `json:"estimated" jsonschema:"그중 예상 소요가 적힌 건수. planned 는 이 비율만큼만 신뢰할 수 있음"`
-	Over      bool   `json:"over,omitempty" jsonschema:"true 면 과다 배정"`
-}
-
-type loadRowsOut struct {
-	Rows []loadOut `json:"rows"`
 }
 
 type timeArgs struct {
@@ -284,34 +264,6 @@ func (s *Server) registerReadTools() {
 			out[i] = nextOut{Task: toTaskJSON(sg.Task, today), Reason: sg.Reason}
 		}
 		return nil, nextRowsOut{Rows: out}, nil
-	})
-
-	mcp.AddTool(s.mcp, &mcp.Tool{
-		Name:        "day_load",
-		Description: "하루(또는 한 주)에 얼마나 잡혀 있는지. 계획을 세우기 전에 이걸로 빈 날을 찾을 것 — 예상 소요가 없는 태스크는 계산에 못 들어가므로 estimated/tasks 비율을 함께 볼 것.",
-	}, func(ctx context.Context, req *mcp.CallToolRequest, in loadArgs) (*mcp.CallToolResult, loadRowsOut, error) {
-		defer s.begin()()
-		today := s.svc.Today()
-		ref, err := parseDate(in.Date, today)
-		if err != nil {
-			return nil, loadRowsOut{}, err
-		}
-		if ref.IsZero() {
-			ref = today
-		}
-		loads := []service.DayLoad{s.svc.DayLoad(ref)}
-		if in.Week {
-			loads = s.svc.WeekLoad(ref)
-		}
-		out := make([]loadOut, len(loads))
-		for i, l := range loads {
-			out[i] = loadOut{
-				Date: l.Date.String(), Weekday: l.Date.WeekdayKO(),
-				Planned: l.Planned.String(), Limit: l.Limit.String(),
-				Tasks: l.Tasks, Estimated: l.Estimated, Over: l.Over(),
-			}
-		}
-		return nil, loadRowsOut{Rows: out}, nil
 	})
 
 	mcp.AddTool(s.mcp, &mcp.Tool{

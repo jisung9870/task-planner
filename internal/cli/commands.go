@@ -116,8 +116,7 @@ func newTodayCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withService(func(svc *service.Service) error {
 				today := svc.Today()
-				fmt.Fprintf(cmd.OutOrStdout(), "%s (%s)%s\n", today, today.WeekdayKO(),
-					loadSuffix(svc.DayLoad(today)))
+				fmt.Fprintf(cmd.OutOrStdout(), "%s (%s)\n", today, today.WeekdayKO())
 				renderList(cmd.OutOrStdout(), svc.TodayList(), today, svc.Cfg.StaleDays)
 				return nil
 			})
@@ -128,14 +127,13 @@ func newTodayCmd() *cobra.Command {
 func newWeekCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "week",
-		Short: "이번 주 진행해야 할 일",
+		Short: "이번 주에 한 일·꺼낼 일",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withService(func(svc *service.Service) error {
 				today := svc.Today()
 				start := today.WeekStart()
 				fmt.Fprintf(cmd.OutOrStdout(), "%s  (%s ~ %s)\n",
 					today.WeekLabel(), start, start.AddDays(6))
-				renderWeekLoad(cmd.OutOrStdout(), svc.WeekLoad(today), today)
 				renderList(cmd.OutOrStdout(), svc.WeekList(today), today, svc.Cfg.StaleDays)
 				return nil
 			})
@@ -157,7 +155,7 @@ func newListCmd() *cobra.Command {
   tp list status:doing project:infra
   tp list due<7d -status:done
   tp list is:overdue
-  tp list is:carried rollover>2
+  tp list is:stale
   tp list 파이프라인            # 제목·프로젝트·태그 부분일치
   tp list body:타임아웃         # 메모·로그 본문까지 검색 (파일을 읽는다)
 

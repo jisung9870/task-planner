@@ -180,8 +180,6 @@ type Model struct {
 	rowCursor int
 	// weekDays are the 7 dates of the Week grid, parallel to cols[0..6].
 	weekDays []domain.Date
-	// weekLoads is the planned work per weekday, parallel to weekDays.
-	weekLoads []service.DayLoad
 	// wkStart is the Monday of the week the grid shows; the zero Date means
 	// 이번 주 and is what the tab returns to with t.
 	wkStart domain.Date
@@ -234,7 +232,6 @@ type Model struct {
 	// Per-reload aggregates. Every one of these used to be recomputed inside
 	// View(), i.e. on every keystroke and every tick.
 	summary       service.Summary
-	todayLoad     service.DayLoad
 	blockingCount map[string]int
 	boardClosed   service.DayCounts
 	detail_       detailCache
@@ -272,15 +269,8 @@ func New(svc *service.Service) *Model {
 	case groupProject, groupProjectStatus:
 		m.grouping = listGrouping(ui.ListGrouping)
 	}
-	// Rolling over before the first render means the morning view is already
-	// correct instead of showing yesterday's dates.
-	if rep, err := svc.RolloverIfEnabled(); err != nil {
-		m.setErr(err)
-	} else if !rep.Empty() {
-		m.setStatus("%d건 이월됨", len(rep.Rolled))
-		if w := rep.StaleWarning(); w != "" {
-			m.status += "  · " + w
-		}
+	if w := svc.Cfg.Warnings; len(w) > 0 {
+		m.setStatus("config: %s", strings.Join(w, " · "))
 	}
 	m.reload()
 	return m
@@ -301,7 +291,6 @@ func (m *Model) SetWatcher(w *watch.Watcher) { m.watcher = w }
 func (m *Model) reload() {
 	today := m.svc.Today()
 	m.summary = m.svc.SummarizeTasks(m.filterTasks(m.svc.All()))
-	m.todayLoad = m.svc.DayLoadFor(today, m.filterTasks(m.svc.All()))
 	m.blockingCount = m.svc.BlockingCounts()
 	m.detail_ = detailCache{}
 	m.detailOffset = 0
@@ -515,7 +504,6 @@ func (m *Model) reloadWeek(ref domain.Date) {
 	ts = m.filterTasks(ts)
 	buckets, days := m.svc.WeekDays(ts, ref)
 	m.weekDays = days
-	m.weekLoads = m.svc.WeekLoadFor(ref, m.filterTasks(m.svc.All()))
 	m.cols = make([][]*domain.Task, 8)
 	for i, d := range days {
 		m.cols[i] = buckets[d]

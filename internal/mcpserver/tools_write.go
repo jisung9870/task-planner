@@ -130,11 +130,6 @@ type archiveOut struct {
 	Moved  []taskJSON `json:"moved"`
 }
 
-type rolloverOut struct {
-	Rolled  []taskJSON `json:"rolled"`
-	Warning string     `json:"warning,omitempty"`
-}
-
 // deprecatedFields warns about inputs retired on 2026-10-03 (기획서 "시간: 계획이
 // 아니라 기록"). They are still saved for one release so an agent following an
 // older skill does not fail mid-task; the warning is how it learns to stop.
@@ -496,25 +491,6 @@ func (s *Server) registerWriteTools() {
 		return nil, out, nil
 	})
 
-	mcp.AddTool(s.mcp, &mcp.Tool{
-		Name:        "rollover",
-		Description: "지난 날짜의 미완료(대기중·진행중) 항목을 오늘로 이월하고 이월 횟수를 올림. 보류는 남의 응답 대기이므로 제외.",
-	}, func(ctx context.Context, req *mcp.CallToolRequest, _ any) (*mcp.CallToolResult, rolloverOut, error) {
-		defer s.begin()()
-		rep, err := s.svc.Rollover()
-		if err != nil {
-			return nil, rolloverOut{}, err
-		}
-		if err := s.finish(); err != nil {
-			return nil, rolloverOut{}, err
-		}
-		out := rolloverOut{Warning: rep.StaleWarning()}
-		today := s.svc.Today()
-		for _, r := range rep.Rolled {
-			out.Rolled = append(out.Rolled, toTaskJSON(r.Task, today))
-		}
-		return nil, out, nil
-	})
 }
 
 func toProjectOut(p *domain.Project) projectOut {

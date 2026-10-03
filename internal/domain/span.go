@@ -6,7 +6,8 @@ import (
 )
 
 // Span is a task's 진행 기간 as typed at a prompt: 착수 예정일(scheduled) 부터
-// 마감일(due) 까지. There is no separate pair of fields for it - a period is
+// 마감일(due) 까지. Deprecated with due (2026-10-03): only the MCP span
+// argument still parses it, for one release. There is no separate pair of fields for it - a period is
 // exactly "언제 시작해서 언제까지" , which the two existing dates already say.
 //
 // SetStart/SetEnd separate "이 필드는 건드리지 마" from "이 필드를 비워" ; a

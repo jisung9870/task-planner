@@ -107,9 +107,16 @@ func TestNoDeleteToolExposed(t *testing.T) {
 			t.Fatalf("삭제 도구가 노출됨: %s", tool.Name)
 		}
 	}
+	for _, gone := range []string{"day_load", "rollover"} {
+		for _, n := range names {
+			if n == gone {
+				t.Fatalf("폐지된 도구가 남음: %s", gone)
+			}
+		}
+	}
 	for _, want := range []string{
 		"task_today", "task_query", "task_add", "task_status", "report_week", "summary",
-		"task_note", "task_next", "day_load", "project_create", "project_set", "archive",
+		"task_note", "task_next", "project_create", "project_set", "archive",
 		"task_claim", "task_release",
 	} {
 		found := false
@@ -292,9 +299,9 @@ func TestProjectCreateSetAndStatus(t *testing.T) {
 	}
 }
 
-func TestNextAndDayLoad(t *testing.T) {
+func TestNext(t *testing.T) {
 	cs, _ := newTestSession(t)
-	call(t, cs, "task_add", map[string]any{"title": "오늘 마감", "due": "today", "estimate": "2h", "scheduled": "today"})
+	call(t, cs, "task_add", map[string]any{"title": "오늘 꺼낸 일", "scheduled": "today"})
 	call(t, cs, "task_add", map[string]any{"title": "언젠가"})
 
 	rows := call(t, cs, "task_next", map[string]any{"limit": 1})["rows"].([]any)
@@ -302,20 +309,11 @@ func TestNextAndDayLoad(t *testing.T) {
 		t.Fatalf("next = %v", rows)
 	}
 	first := rows[0].(map[string]any)
-	if first["task"].(map[string]any)["title"] != "오늘 마감" {
+	if first["task"].(map[string]any)["title"] != "오늘 꺼낸 일" {
 		t.Fatalf("추천 = %v", first)
 	}
 	if reason := first["reason"].(string); !strings.Contains(reason, "오늘 꺼낸 일") {
 		t.Fatalf("reason = %q", reason)
-	}
-
-	loads := call(t, cs, "day_load", map[string]any{})["rows"].([]any)
-	day := loads[0].(map[string]any)
-	if day["planned"] != "2h" || day["estimated"].(float64) != 1 {
-		t.Fatalf("load = %v", day)
-	}
-	if week := call(t, cs, "day_load", map[string]any{"week": true})["rows"].([]any); len(week) != 7 {
-		t.Fatalf("주간 load = %d일", len(week))
 	}
 }
 
