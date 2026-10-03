@@ -88,4 +88,3 @@ func taskLine(t *domain.Task, today domain.Date, staleDays int) string {
 	}
 	return b.String()
 }
-
