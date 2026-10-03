@@ -79,6 +79,9 @@ tp                                      # TUI 열기
 | | `tp skip 3` | 반복의 이번 회차만 건너뛰기 |
 | 수정 | `tp set 1 --span 09-15~09-19 --priority P1` | 필드 수정 (로그에 남음) |
 | | `tp note 1 "보안팀 회신 대기, 담당 김OO"` | 시각이 붙은 한 줄 메모 |
+| | `tp set 1 --agent codex --tier deep` | [실행 agent·모델 등급](#실행-agent-지정과-가져가기) |
+| 실행 | `tp claim --agent claude --session s1` | agent 몫 중 가장 급한 일을 가져감 (진행중으로) |
+| | `tp release 1 --agent claude --session s1` | 가져간 일을 놓음. 남의 claim 은 `--force` |
 | | `tp projects set infra --due +2w` | 프로젝트 마감(마일스톤)·상태 |
 | 관리 | `tp archive --dry-run` | 오래된 완료분 정리 (기본 30일) |
 | | `tp index --rebuild` | 인덱스 재생성 |
@@ -313,10 +316,11 @@ CLI(`tp list`)와 TUI(`/`)가 같은 문법을 쓴다. 조건은 모두 AND 로 
 
 | 항목 | 값 |
 |---|---|
-| 필드 | `executor` `status` `project` `tag` `priority` `due` `scheduled` `rollover` `is` `id` `body` |
+| 필드 | `executor` `agent` `tier` `pick` `status` `project` `tag` `priority` `due` `scheduled` `rollover` `is` `id` `body` |
 | 연산 | `:` 같음, `<` `<=` `>` `>=` 비교(날짜·숫자) |
 | 날짜 | `2026-09-15` `today` `tomorrow` `+7d` `2w` `1m` `week` `none` `any` |
-| `is:` | `open` `closed` `overdue` `duesoon` `blocked` `carried` `unscheduled` `recurring` |
+| `is:` | `open` `closed` `overdue` `duesoon` `blocked` `carried` `unscheduled` `recurring` `claimed` `unclaimed` |
+| `agent:` | 이름(정확히 일치), `none`, `any`. `pick:claude` 는 claude 나 auto 로 지정되고 아무도 안 가져간 열린 일 |
 | 부정 | 앞에 `-` 또는 `!` (`-status:done`) |
 | 자유어 | 제목·프로젝트·태그 부분일치. `"따옴표"` 로 구 묶기 |
 | `body:` | 메모·로그 본문 검색. 인덱스에 본문이 없어 파일을 읽으므로, 다른 조건으로 먼저 좁히면 빠르다 |
@@ -390,7 +394,7 @@ claude mcp add -s user task-planner -- tp mcp     # 모든 프로젝트
 | 종류 | 도구 |
 |---|---|
 | 읽기 | `vault_info` `task_today` `task_week` `task_query` `task_get` `task_next` `day_load` `summary` `project_status` `time_summary` `report_week` |
-| 쓰기 | `task_add` `task_status` `task_skip` `task_edit` `task_note` `project_create` `project_set` `rollover` `archive` |
+| 쓰기 | `task_add` `task_status` `task_skip` `task_edit` `task_note` `task_claim` `task_release` `project_create` `project_set` `rollover` `archive` |
 
 - 모든 도구가 TUI·CLI 와 같은 service 계층을 통과한다. 그래서 도메인 규칙(보류
   사유 강제, 전이 로그, 반복 회차 생성, 후행 자동 해제, WIP 경고)이 그대로 지켜진다.
@@ -435,6 +439,41 @@ TUI에서는 `F` 로 사람 → agent → 전체 작업을 전환한다.
 Codex 스킬 원본은 [`skills/task-planner/SKILL.md`](skills/task-planner/SKILL.md)에
 있다. 전역 스킬 경로에 설치하고 전역 `AGENTS.md` 에서 여러 단계 작업과 산출물
 변경 시 이 스킬을 따르도록 지정하면, 프로젝트를 옮겨도 같은 vault를 쓴다.
+
+### 실행 agent 지정과 가져가기
+
+등록할 때 누가 할 일인지(`agent`)와 얼마나 무거운 일인지(`tier`)를 적는다. 이 도구는
+모델을 실행하지 않는다. 값을 원천으로 두고, 읽는 쪽(열린 Claude Code·Codex 세션,
+또는 나루)이 판단하고 실행한다. 결정 배경은 기획서의 같은 이름 절에 있다.
+
+```bash
+tp add '인덱스 구조 검토' --agent claude --tier deep   # executor 는 agent 가 된다
+tp add '로그 형식 치환' --agent codex --tier fast
+tp add '문서 오탈자 정리' --agent auto                 # 허용된 누구든
+tp list pick:claude                                   # claude 세션의 몫
+```
+
+허용 agent 와 등급별 모델은 `<vault>/config.yaml` 에 둔다. 없으면 아래 기본값이다.
+일부만 적으면 나머지는 기본값을 유지한다.
+
+```yaml
+agents:
+  allowed: [claude, codex]
+  models:
+    claude: {fast: haiku, standard: sonnet, deep: opus}
+    codex:  {fast: gpt-6-luna, standard: gpt-6-sol, deep: gpt-6-astra}
+```
+
+- `task_claim`(MCP) / `tp claim`(CLI)은 일을 `claimed_by: <agent>:<세션>` 으로 기록하고
+  진행중으로 바꾼다. 결과에 해석된 `model` 이 함께 온다. ref 를 비우면 `pick:` 대상 중
+  가장 급한 일을 고른다.
+- vault 잠금 안에서 파일을 다시 읽고 판단하므로 두 세션이 같은 일을 동시에 가져가지
+  못한다. 다른 실행이 가져간 일, 다른 agent 로 지정된 일, 보류 중인 일은 거부한다.
+- MCP 에서 `agent` 를 생략하면 클라이언트 이름(claude·codex)으로 판단하고, `session`
+  을 생략하면 그 연결의 식별자(`vault_info.session`)를 쓴다.
+- 대기중으로 되돌리거나 `task_release` 하면 claim 이 지워진다. 완료·취소는 누가 했는지
+  기록으로 남긴다.
+- TUI 목록은 `@claude/deep` 배지(`*` 는 가져감), 상세는 실행·등급·모델·가져감 줄을 보여준다.
 
 **기존 `<vault>/agent` 데이터 합치기**
 

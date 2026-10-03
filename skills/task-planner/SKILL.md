@@ -23,6 +23,15 @@ tp add '작업 제목' --executor agent --start --note '목표: ...
 
 Use `--vault "$TP_VAULT"` when the configured base differs from the default. Keep the returned full task ID; short numbers can be ambiguous in legacy data or migration history.
 
+## Taking assigned work
+
+A task may name who should run it (`agent: claude|codex|auto`) and how heavy it is (`tier: fast|standard|deep`). `vault_info` returns the allowed agents, the tier→model table, and this connection's session id.
+
+- To find your share, query `pick:<your agent>` (named for you or `auto`, open, not on hold, unclaimed). Do not take tasks named for another agent, and do not sweep up unnamed tasks; those are the human's.
+- Before working on a pickable task, call `task_claim` (empty `ref` takes the most urgent one). It refuses a task another run already claimed: report that instead of working around it. CLI: `tp claim [ref] --agent <agent> --session <id>`.
+- Use the returned `model` for the work, for example as the subagent model. If it is empty, judge the tier yourself, record it with `task_edit` (`tier`), and note the reason.
+- If you stop without finishing, call `task_release`. Never force-release another run's claim unless the user confirms that run has ended.
+
 ## During work
 
 Append a dated note after a meaningful step, a changed plan, a blocker, or a validation result. Say what actually happened and include the relevant file, command outcome, error, or artifact reference. Keep notes brief; the task is a progress record, while code and documents remain the source for current implementation. Do not write speculative success, sensitive values, or a transcript of every tool call. If the user changes scope, update the active task's plan in a note before continuing.
