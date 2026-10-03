@@ -69,7 +69,7 @@ type editArgs struct {
 	Estimate  *string   `json:"estimate,omitempty" jsonschema:"30m, 2h 등. 빈 문자열이면 해제"`
 	Tags      *[]string `json:"tags,omitempty" jsonschema:"전체 교체"`
 	Recur     *string   `json:"recur,omitempty" jsonschema:"반복 규칙, 빈 문자열이면 반복 중단"`
-	Span      *string   `json:"span,omitempty" jsonschema:"진행 기간을 한 번에: 2026-09-15~2026-09-19 | today~+4d | ~2026-09-19(마감만) | none(해제). scheduled/due 와 같은 필드를 쓰므로 함께 지정할 수 없음"`
+	Span      *string   `json:"span,omitempty" jsonschema:"진행 기간을 한 번에: 2026-09-15~2026-09-19 | today~+4d | ~2026-09-19(마감만) | none(해제). scheduled/due 와 같은 필드를 쓰므로 함께 지정할 수 없음. 다른 필드와는 함께 보내도 됨"`
 }
 
 type claimArgs struct {
@@ -241,7 +241,7 @@ func (s *Server) registerWriteTools() {
 
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "task_edit",
-		Description: "필드 수정 (부분 갱신 — 지정한 필드만 바뀜). 변경 내역이 태스크 로그에 남음. 진행 기간은 span 하나로 지정할 수 있음.",
+		Description: "필드 수정 (부분 갱신 — 지정한 필드만 바뀜). 변경 내역이 태스크 로그에 남음. 진행 기간은 span 하나로 지정할 수 있고, 다른 필드와 함께 보내면 한 번에 저장됨.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in editArgs) (*mcp.CallToolResult, mutateOut, error) {
 		defer s.begin()()
 		var issues []style.Issue
@@ -302,24 +302,15 @@ func (s *Server) registerWriteTools() {
 			}
 			ei.Estimate = &e
 		}
+		var span *domain.Span
 		if in.Span != nil {
-			if in.Scheduled != nil || in.Due != nil {
-				return nil, mutateOut{}, fmt.Errorf("span 은 scheduled/due 와 함께 지정할 수 없음 (같은 필드를 씀)")
-			}
 			sp, err := s.svc.ParseSpan(*in.Span)
 			if err != nil {
 				return nil, mutateOut{}, err
 			}
-			res, err := s.svc.SetSpan(in.Ref, sp)
-			if err != nil {
-				return nil, mutateOut{}, err
-			}
-			if err := s.finish(); err != nil {
-				return nil, mutateOut{}, err
-			}
-			return nil, withWarnings(toMutateOut(res, today), issues), nil
+			span = &sp
 		}
-		res, err := s.svc.Edit(in.Ref, ei)
+		res, err := s.svc.EditWithSpan(in.Ref, ei, span)
 		if err != nil {
 			return nil, mutateOut{}, err
 		}

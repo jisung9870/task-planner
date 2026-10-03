@@ -113,27 +113,20 @@ func newSetCmd() *cobra.Command {
 					in.Due = &d
 				}
 
-				// --span writes the same two dates, so refusing the combination
-				// is clearer than silently letting one win.
-				var res *service.Result
+				// --span writes the same two dates; EditWithSpan refuses the
+				// combination with --scheduled/--due and saves the rest with it.
+				var period *domain.Span
 				if f.Changed("span") {
-					if f.Changed("scheduled") || f.Changed("due") {
-						return fmt.Errorf("--span 은 --scheduled/--due 와 함께 쓸 수 없음 (같은 필드를 씀)")
-					}
 					sp, err := svc.ParseSpan(span)
 					if err != nil {
 						return err
 					}
-					// The span goes through its own call because that is where
-					// "끝이 시작보다 빠름" is caught; the remaining fields still
-					// have to be applied, not silently dropped.
-					if res, err = svc.SetSpan(args[0], sp); err != nil {
-						return err
-					}
+					period = &sp
 				}
-				if in.Any() {
+				var res *service.Result
+				if period != nil || in.Any() {
 					var err error
-					if res, err = svc.Edit(args[0], in); err != nil {
+					if res, err = svc.EditWithSpan(args[0], in, period); err != nil {
 						return err
 					}
 				}

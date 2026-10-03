@@ -260,6 +260,12 @@ func TestEditSpanWritesBothDates(t *testing.T) {
 	}); !strings.Contains(msg, "함께 지정할 수 없음") {
 		t.Fatalf("msg = %q", msg)
 	}
+	// Any other field rides along with the span instead of being dropped.
+	out = call(t, cs, "task_edit", map[string]any{"ref": "#1", "span": "2026-10-06~2026-10-09", "priority": "P1"})
+	task = out["task"].(map[string]any)
+	if task["scheduled"] != "2026-10-06" || task["due"] != "2026-10-09" || task["priority"] != "P1" {
+		t.Fatalf("span with priority = %v", task)
+	}
 }
 
 func TestProjectCreateSetAndStatus(t *testing.T) {

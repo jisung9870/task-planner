@@ -20,12 +20,27 @@ func (s *Service) ParseSpan(expr string) (domain.Span, error) {
 
 // SetSpan writes a task's 진행 기간 - scheduled is the start, due is the end.
 func (s *Service) SetSpan(ref string, sp domain.Span) (*Result, error) {
+	return s.EditWithSpan(ref, EditInput{}, &sp)
+}
+
+// EditWithSpan applies field updates and, when sp is set, the 진행 기간 in one
+// save and one log line. Adapters that take both at once must come through
+// here: a span applied on its own call either drops the other fields or, when
+// a later field fails, leaves half the request written.
+func (s *Service) EditWithSpan(ref string, in EditInput, sp *domain.Span) (*Result, error) {
+	if sp == nil {
+		return s.Edit(ref, in)
+	}
+	// The span writes scheduled and due; letting one of two sources win
+	// silently is worse than refusing.
+	if in.Scheduled != nil || in.Due != nil {
+		return nil, fmt.Errorf("기간(span)은 scheduled/due 와 함께 지정할 수 없음 (같은 필드를 씀)")
+	}
 	t, err := s.Resolve(ref)
 	if err != nil {
 		return nil, err
 	}
 	start, end := t.Scheduled, t.Due
-	in := EditInput{}
 	if sp.SetStart {
 		start = sp.Start
 		in.Scheduled = &start
