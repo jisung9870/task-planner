@@ -110,3 +110,29 @@ func TestTotalTimeSums(t *testing.T) {
 		t.Fatalf("total = %+v", total)
 	}
 }
+
+// A running session is summed in whole minutes, so the ratio is computed from
+// the actual that is printed and does not creep between two calls.
+func TestTimeSummaryRatioMatchesPrintedActual(t *testing.T) {
+	running := timed("r", "infra", "1h", "", "")
+	running.Status = domain.StatusDoing
+	running.Updated, _ = domain.ParseDate("2026-09-12")
+	started := noon.Add(-20 * time.Second)
+	running.StartedAt = &started
+
+	first := TimeSummary([]*domain.Task{running}, domain.Date{}, domain.Date{}, noon)
+	later := TimeSummary([]*domain.Task{running}, domain.Date{}, domain.Date{}, noon.Add(5*time.Second))
+	if len(first) != 1 || first[0].Tasks != 1 {
+		t.Fatalf("a running task with an estimate must still count: %+v", first)
+	}
+	if first[0].Actual != 0 || first[0].Ratio() != 0 || later[0].Ratio() != 0 {
+		t.Fatalf("20s reads 0m, so the ratio must be 0: %+v %v %v", first[0], first[0].Ratio(), later[0].Ratio())
+	}
+	twoMin := TimeSummary([]*domain.Task{running}, domain.Date{}, domain.Date{}, noon.Add(100*time.Second))
+	if got := twoMin[0].Actual.String(); got != "2m" {
+		t.Fatalf("actual = %s", got)
+	}
+	if got, want := twoMin[0].Ratio(), 2.0/60; got != want {
+		t.Fatalf("ratio = %v, want %v", got, want)
+	}
+}

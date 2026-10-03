@@ -38,10 +38,14 @@ func TimeSummary(all []*domain.Task, from, to domain.Date, now time.Time) []Proj
 		if !inPeriod(t, from, to) {
 			continue
 		}
-		actual := t.ElapsedActual(now)
-		if actual == 0 && t.Estimate == 0 {
+		elapsed := t.ElapsedActual(now)
+		if elapsed == 0 && t.Estimate == 0 {
 			continue
 		}
+		// Sum whole minutes, the unit every output prints. Summing the running
+		// session's seconds made the ratio drift between calls while the
+		// actual it was computed from still read "0m".
+		actual := domain.Duration(time.Duration(elapsed).Round(time.Minute))
 		p, ok := byslug[t.Project]
 		if !ok {
 			p = &ProjectTime{Slug: t.Project}

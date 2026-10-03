@@ -2,9 +2,11 @@ package mcpserver
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"task-planner/internal/domain"
 	"task-planner/internal/query"
 	"task-planner/internal/service"
 )
@@ -110,7 +112,7 @@ type loadRowsOut struct {
 }
 
 type timeArgs struct {
-	Period string `json:"period,omitempty" jsonschema:"집계 기간: week(이번 주) 또는 all(전체, 기본)"`
+	Period string `json:"period,omitempty" jsonschema:"집계 기간: week(이번 주) 또는 all(전체, 기본). 그 밖의 값은 오류. 실소요는 분 단위로 합산"`
 }
 
 type timeRow struct {
@@ -306,12 +308,17 @@ func (s *Server) registerReadTools() {
 		Description: "프로젝트별 예상(estimate) 대비 실소요(actual) 집계. ratio > 1 이면 예상이 낙관적이었다는 뜻.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in timeArgs) (*mcp.CallToolResult, timeRowsOut, error) {
 		defer s.begin()()
-		var from, to = s.svc.Today(), s.svc.Today()
-		if in.Period == "week" {
-			from = from.WeekStart()
+		// Same periods as `tp time`: no bounds for all, Monday~Sunday for week.
+		// Anything else is an error - a "month" silently read as everything
+		// answers a question nobody asked.
+		var from, to domain.Date
+		switch in.Period {
+		case "", "all":
+		case "week":
+			from = s.svc.Today().WeekStart()
 			to = from.AddDays(6)
-		} else {
-			from, to = from.AddDays(-365*10), to.AddDays(1)
+		default:
+			return nil, timeRowsOut{}, fmt.Errorf("period 는 week 또는 all 이어야 함: %q", in.Period)
 		}
 		rows := s.svc.TimeSummary(from, to)
 		out := make([]timeRow, len(rows))

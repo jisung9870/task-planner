@@ -424,3 +424,16 @@ func TestConventionsResourceIsReadable(t *testing.T) {
 		t.Fatalf("규약 문서가 비어 있음: %v", res.Contents)
 	}
 }
+
+// time_summary takes the periods `tp time` takes and refuses the rest, rather
+// than reading "month" as everything.
+func TestTimeSummaryPeriods(t *testing.T) {
+	cs, _ := newTestSession(t)
+	call(t, cs, "task_add", map[string]any{"title": "측정", "estimate": "1h"})
+	for _, p := range []string{"", "all", "week"} {
+		call(t, cs, "time_summary", map[string]any{"period": p})
+	}
+	if msg := callErr(t, cs, "time_summary", map[string]any{"period": "month"}); !strings.Contains(msg, "week 또는 all") {
+		t.Fatalf("msg = %q", msg)
+	}
+}
