@@ -19,7 +19,7 @@ type ClaimInput struct {
 // so two sessions racing for the same task see each other's claim.
 func (s *Service) Claim(in ClaimInput) (*Result, error) {
 	if in.Agent == "" || in.Agent == domain.AgentAuto || !s.Cfg.Agents.Allows(in.Agent) {
-		return nil, fmt.Errorf("허용되지 않은 agent: %q (config.yaml agents.allowed: %s)", in.Agent, s.allowedList())
+		return nil, fmt.Errorf("허용되지 않은 agent: %q (허용: %s)", in.Agent, s.Cfg.Agents.Describe())
 	}
 	ref, err := domain.ClaimRef(in.Agent, in.Session)
 	if err != nil {

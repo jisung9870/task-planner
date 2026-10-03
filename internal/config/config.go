@@ -4,6 +4,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -65,6 +66,86 @@ type Config struct {
 type AgentsConfig struct {
 	Allowed []domain.Agent                          `yaml:"allowed,omitempty"`
 	Models  map[domain.Agent]map[domain.Tier]string `yaml:"models,omitempty"`
+
+	// Source says where Allowed came from. A person who uses only one agent,
+	// or a machine that has only one installed, must be able to tell why a
+	// name was refused - see resolveAllowed for the order.
+	Source AgentsSource `yaml:"-"`
+}
+
+// EnvAgents narrows the allowed agents for one machine, over the vault file:
+// the vault is shared between machines through git, the installed CLIs are not.
+const EnvAgents = "TP_AGENTS"
+
+type AgentsSource string
+
+const (
+	AgentsFromEnv    AgentsSource = "env"
+	AgentsFromConfig AgentsSource = "config"
+	AgentsDetected   AgentsSource = "detected"
+	AgentsDefault    AgentsSource = "default"
+)
+
+// Label is the source as a user-facing phrase for error messages.
+func (s AgentsSource) Label() string {
+	switch s {
+	case AgentsFromEnv:
+		return "$" + EnvAgents
+	case AgentsFromConfig:
+		return "config.yaml agents.allowed"
+	case AgentsDetected:
+		return "PATH 에서 감지"
+	}
+	return "기본값"
+}
+
+// Describe is "claude, codex (PATH 에서 감지)" for refusals.
+func (a AgentsConfig) Describe() string {
+	names := make([]string, len(a.Allowed))
+	for i, n := range a.Allowed {
+		names[i] = string(n)
+	}
+	list := strings.Join(names, ", ")
+	if list == "" {
+		list = "없음"
+	}
+	return list + " (" + a.Source.Label() + ")"
+}
+
+// lookPath is swapped in tests so detection does not depend on the machine.
+var lookPath = exec.LookPath
+
+// resolveAllowed picks the allowed list: the machine's TP_AGENTS, then the
+// vault file, then the agent CLIs found on PATH, then both. Detection only
+// sees installation, not login - an exact answer belongs in one of the first
+// two.
+func (a *AgentsConfig) resolveAllowed() error {
+	if v := strings.TrimSpace(os.Getenv(EnvAgents)); v != "" {
+		a.Allowed = nil
+		for _, part := range strings.Split(v, ",") {
+			if part = strings.TrimSpace(part); part != "" {
+				a.Allowed = append(a.Allowed, domain.Agent(part))
+			}
+		}
+		a.Source = AgentsFromEnv
+		return nil
+	}
+	if a.Allowed != nil {
+		a.Source = AgentsFromConfig
+		return nil
+	}
+	for _, name := range defaultAgents().Allowed {
+		if _, err := lookPath(string(name)); err == nil {
+			a.Allowed = append(a.Allowed, name)
+		}
+	}
+	if len(a.Allowed) > 0 {
+		a.Source = AgentsDetected
+		return nil
+	}
+	a.Allowed = defaultAgents().Allowed
+	a.Source = AgentsDefault
+	return nil
 }
 
 // Allows reports whether a task may name this agent. auto is always allowed:
@@ -92,6 +173,7 @@ func (a AgentsConfig) Model(name domain.Agent, tier domain.Tier) string {
 
 func defaultAgents() AgentsConfig {
 	return AgentsConfig{
+		Source:  AgentsDefault,
 		Allowed: []domain.Agent{"claude", "codex"},
 		Models: map[domain.Agent]map[domain.Tier]string{
 			"claude": {domain.TierFast: "haiku", domain.TierStandard: "sonnet", domain.TierDeep: "opus"},
@@ -105,20 +187,21 @@ func defaultAgents() AgentsConfig {
 // the file says, so it is a load error.
 func (a *AgentsConfig) normalize() error {
 	def := defaultAgents()
-	if a.Allowed == nil {
-		a.Allowed = def.Allowed
+	if err := a.resolveAllowed(); err != nil {
+		return err
 	}
+	where := a.Source.Label()
 	seen := map[domain.Agent]bool{}
 	for i, name := range a.Allowed {
 		n, err := domain.ParseAgent(string(name))
 		if err != nil {
-			return err
+			return fmt.Errorf("%s: %w", where, err)
 		}
 		if n == "" || n == domain.AgentAuto {
-			return fmt.Errorf("agents.allowed 에 %q 는 넣을 수 없음", name)
+			return fmt.Errorf("%s 에 %q 는 넣을 수 없음", where, name)
 		}
 		if seen[n] {
-			return fmt.Errorf("agents.allowed 중복: %s", n)
+			return fmt.Errorf("%s 중복: %s", where, n)
 		}
 		seen[n] = true
 		a.Allowed[i] = n
@@ -206,16 +289,18 @@ func ResolveVault(flagVault string) (string, error) {
 // Load reads <vault>/config.yaml, filling in defaults for absent keys.
 func Load(vault string) (*Config, error) {
 	cfg := Default(vault)
+	// Allowed starts empty so the file's own list is distinguishable from
+	// "not set" - the latter falls through to machine detection.
+	cfg.Agents.Allowed = nil
 	path := filepath.Join(vault, "config.yaml")
 	raw, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return cfg, nil
-	}
-	if err != nil {
+	if err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("%s 읽기 실패: %w", path, err)
 	}
-	if err := yaml.Unmarshal(raw, cfg); err != nil {
-		return nil, fmt.Errorf("%s 파싱 실패: %w", path, err)
+	if err == nil {
+		if err := yaml.Unmarshal(raw, cfg); err != nil {
+			return nil, fmt.Errorf("%s 파싱 실패: %w", path, err)
+		}
 	}
 	cfg.Vault = vault
 	if err := cfg.Agents.normalize(); err != nil {
@@ -241,7 +326,14 @@ func Load(vault string) (*Config, error) {
 
 // Save writes the config back, used by `tp init`.
 func Save(cfg *Config) error {
-	raw, err := yaml.Marshal(cfg)
+	// Only a list the file itself declared is written back. Pinning a detected
+	// or default list into a vault that git carries to other machines would
+	// turn one machine's installation into everyone's policy.
+	out := *cfg
+	if out.Agents.Source != AgentsFromConfig {
+		out.Agents.Allowed = nil
+	}
+	raw, err := yaml.Marshal(&out)
 	if err != nil {
 		return err
 	}

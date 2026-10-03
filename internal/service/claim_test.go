@@ -117,6 +117,8 @@ func TestRecurCarriesAgentNotClaim(t *testing.T) {
 // Two services on one vault stand in for two agent sessions. Exactly one may
 // win each task; the rest must see the claim and fail.
 func TestConcurrentClaimsHaveOneWinner(t *testing.T) {
+	// Pin the allowed list: config.Load would otherwise detect this machine.
+	t.Setenv(config.EnvAgents, "claude,codex")
 	svc := newTestService(t)
 	task, _ := svc.Add(AddInput{Title: "경합", Agent: domain.AgentAuto})
 	svc.Close()

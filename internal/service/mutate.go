@@ -102,20 +102,12 @@ func (s *Service) executorFor(e domain.Executor, a domain.Agent) (domain.Executo
 		return e, nil
 	}
 	if !s.Cfg.Agents.Allows(a) {
-		return "", fmt.Errorf("허용되지 않은 agent: %s (config.yaml agents.allowed: %s)", a, s.allowedList())
+		return "", fmt.Errorf("허용되지 않은 agent: %s (허용: %s)", a, s.Cfg.Agents.Describe())
 	}
 	if e == domain.ExecutorHuman {
 		return "", fmt.Errorf("agent 를 지정한 일은 executor 가 agent 여야 함 (human 과 함께 쓸 수 없음)")
 	}
 	return domain.ExecutorAgent, nil
-}
-
-func (s *Service) allowedList() string {
-	names := make([]string, len(s.Cfg.Agents.Allowed))
-	for i, a := range s.Cfg.Agents.Allowed {
-		names[i] = string(a)
-	}
-	return strings.Join(names, ", ")
 }
 
 // AddWithResult is Add plus the advisory the caller should surface (currently
