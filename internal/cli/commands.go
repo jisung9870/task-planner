@@ -38,9 +38,9 @@ func newInitCmd() *cobra.Command {
 
 func newAddCmd() *cobra.Command {
 	var (
-		project, executor, priority, sched, due, estimate, note, recur string
-		tags, links                                                    []string
-		start                                                          bool
+		project, executor, agent, tier, priority, sched, due, estimate, note, recur string
+		tags, links                                                                 []string
+		start                                                                       bool
 	)
 	cmd := &cobra.Command{
 		Use:   "add <제목...>",
@@ -57,6 +57,17 @@ func newAddCmd() *cobra.Command {
 					Recur:   recur,
 				}
 				var err error
+				if in.Agent, err = domain.ParseAgent(agent); err != nil {
+					return err
+				}
+				if in.Tier, err = domain.ParseTier(tier); err != nil {
+					return err
+				}
+				// --agent alone means agent work; only an explicit
+				// --executor human may contradict it (and is refused).
+				if in.Agent != "" && !cmd.Flags().Changed("executor") {
+					executor = string(domain.ExecutorAgent)
+				}
 				if in.Executor, err = domain.ParseExecutor(executor); err != nil {
 					return err
 				}
@@ -91,6 +102,8 @@ func newAddCmd() *cobra.Command {
 	f := cmd.Flags()
 	f.StringVarP(&project, "project", "p", "", "프로젝트 slug")
 	f.StringVar(&executor, "executor", "human", "실행 주체 human|agent")
+	f.StringVar(&agent, "agent", "", "실행할 agent (config agents.allowed 중 하나 또는 auto)")
+	f.StringVar(&tier, "tier", "", "작업 무게 fast|standard|deep (모델은 config agents.models)")
 	f.StringVar(&priority, "priority", "", "우선순위 P0~P3")
 	f.StringVarP(&sched, "scheduled", "s", "", "착수 예정일 (YYYY-MM-DD | today | tomorrow | +3d | mon)")
 	f.StringVarP(&due, "due", "d", "", "마감일 (동일 형식)")
@@ -217,6 +230,9 @@ func newShowCmd() *cobra.Command {
 				}
 				out := cmd.OutOrStdout()
 				fmt.Fprintf(out, "%s\n\n%s", t.Path, raw)
+				if m := svc.ModelFor(t); m != "" {
+					fmt.Fprintf(out, "\n모델: %s (%s · %s)\n", m, t.RunAgent(), t.Tier)
+				}
 				printDeps(out, svc, t)
 				return nil
 			})

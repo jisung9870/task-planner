@@ -22,8 +22,8 @@ func clearValue(v string) string {
 
 func newSetCmd() *cobra.Command {
 	var (
-		title, project, executor, priority, sched, due, span, estimate, recur string
-		tags, links                                                           []string
+		title, project, executor, agent, tier, priority, sched, due, span, estimate, recur string
+		tags, links                                                                        []string
 	)
 	cmd := &cobra.Command{
 		Use:   "set <태스크> [플래그]",
@@ -34,6 +34,7 @@ func newSetCmd() *cobra.Command {
   tp set 12 --span 09-15~09-19        # 진행 기간 (scheduled~due)
   tp set 12 --project infra --tag ops --tag infra
   tp set 12 --due none                # 해제 (none 또는 -)
+  tp set 12 --agent codex --tier deep # 실행 agent·모델 등급
 
 파일을 직접 고쳐도 되지만 이 명령은 변경 내역을 태스크 로그에 남긴다.`,
 		Args: cobra.ExactArgs(1),
@@ -58,6 +59,20 @@ func newSetCmd() *cobra.Command {
 						return err
 					}
 					in.Executor = &e
+				}
+				if f.Changed("agent") {
+					a, err := domain.ParseAgent(clearValue(agent))
+					if err != nil {
+						return err
+					}
+					in.Agent = &a
+				}
+				if f.Changed("tier") {
+					tr, err := domain.ParseTier(clearValue(tier))
+					if err != nil {
+						return err
+					}
+					in.Tier = &tr
 				}
 				if f.Changed("priority") {
 					p, err := domain.ParsePriority(clearValue(priority))
@@ -134,6 +149,8 @@ func newSetCmd() *cobra.Command {
 	f.StringVar(&title, "title", "", "제목")
 	f.StringVarP(&project, "project", "p", "", "프로젝트 slug (none 이면 해제)")
 	f.StringVar(&executor, "executor", "", "실행 주체 human|agent")
+	f.StringVar(&agent, "agent", "", "실행할 agent 또는 auto (none 이면 해제)")
+	f.StringVar(&tier, "tier", "", "fast|standard|deep (none 이면 해제)")
 	f.StringVar(&priority, "priority", "", "우선순위 P0~P3 (none 이면 해제)")
 	f.StringVarP(&sched, "scheduled", "s", "", "착수 예정일 (YYYY-MM-DD | today | +3d | mon | none)")
 	f.StringVarP(&due, "due", "d", "", "마감일 (동일 형식)")
@@ -158,6 +175,9 @@ func setSummary(t *domain.Task) []string {
 	}
 	if t.Priority != "" {
 		parts = append(parts, string(t.Priority))
+	}
+	if t.Agent != "" || t.Tier != "" || t.ClaimedBy != "" {
+		parts = append(parts, "실행 "+t.AgentBadge())
 	}
 	if t.HasSpan() {
 		parts = append(parts, "기간 "+t.SpanLabel())

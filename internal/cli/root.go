@@ -51,6 +51,8 @@ func newRoot() *cobra.Command {
 		newSetCmd(),
 		newNoteCmd(),
 		newNextCmd(),
+		newClaimCmd(),
+		newReleaseCmd(),
 		newArchiveCmd(),
 		newRolloverCmd(),
 		newReportCmd(),

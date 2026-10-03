@@ -561,6 +561,9 @@ func (m *Model) renderTaskRow(i int, t *domain.Task, today domain.Date) string {
 	if t.Priority != "" {
 		meta = append(meta, string(t.Priority))
 	}
+	if t.Agent != "" || t.ClaimedBy != "" {
+		meta = append(meta, t.AgentBadge())
+	}
 	if !t.Estimate.IsZero() {
 		meta = append(meta, "~"+t.Estimate.String())
 	}
@@ -1059,6 +1062,9 @@ func (m *Model) detailPane() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "  %s  %s\n", styTitle.Render(full.ID), full.Title)
 	fmt.Fprintf(&b, "  %s\n", styMuted.Render(detailMeta(full)))
+	if line := detailAgent(full, m.svc.ModelFor(full)); line != "" {
+		fmt.Fprintf(&b, "  %s\n", styMuted.Render(line))
+	}
 	if note := full.Note(); note != "" {
 		b.WriteString("\n")
 		for _, l := range strings.Split(note, "\n") {
@@ -1124,6 +1130,28 @@ func (m *Model) detailBlock(avail int) string {
 		hint = fmt.Sprintf("  ↑%d ↓%d (J/K 스크롤)", m.detailOffset, len(lines)-end)
 	}
 	return out + "\n" + styMuted.Render(hint)
+}
+
+// detailAgent is the 실행 line: who should run the task, how heavy it is, the
+// model that resolves to, and which run has it. Empty for unassigned tasks.
+func detailAgent(t *domain.Task, model string) string {
+	if t.Agent == "" && t.Tier == "" && t.ClaimedBy == "" {
+		return ""
+	}
+	var parts []string
+	if t.Agent != "" {
+		parts = append(parts, "실행 "+string(t.Agent))
+	}
+	if t.Tier != "" {
+		parts = append(parts, "등급 "+string(t.Tier))
+	}
+	if model != "" {
+		parts = append(parts, "모델 "+model)
+	}
+	if t.ClaimedBy != "" {
+		parts = append(parts, "가져감 "+t.ClaimedBy)
+	}
+	return strings.Join(parts, "  ·  ")
 }
 
 func detailMeta(t *domain.Task) string {

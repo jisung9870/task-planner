@@ -62,6 +62,9 @@ func taskLine(t *domain.Task, today domain.Date, dueSoon int) string {
 	if t.Priority != "" {
 		meta = append(meta, string(t.Priority))
 	}
+	if t.Agent != "" || t.ClaimedBy != "" {
+		meta = append(meta, t.AgentBadge())
+	}
 	if !t.Estimate.IsZero() {
 		meta = append(meta, "~"+t.Estimate.String())
 	}
