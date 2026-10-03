@@ -39,14 +39,24 @@ func (t *Task) WorkHistory(loc *time.Location) WorkHistory {
 		if !from.Valid() || !to.Valid() || from == to {
 			continue
 		}
+		closed := false
 		if from == StatusDoing && !running.IsZero() {
 			if !at.Before(running) {
 				h.Sessions = append(h.Sessions, WorkSession{running, at})
+				closed = true
 			}
 			running = time.Time{}
 		}
 		if to == StatusDoing {
 			running = at
+		}
+		// A backfilled completion closes a session the timer never saw, or
+		// moves the start of the one it did.
+		if since, ok := parseSinceMark(line, loc); ok && to == StatusDone && !at.Before(since) {
+			if closed {
+				h.Sessions = h.Sessions[:len(h.Sessions)-1]
+			}
+			h.Sessions = append(h.Sessions, WorkSession{since, at})
 		}
 		if to.Terminal() {
 			h.Finishes = append(h.Finishes, WorkFinish{at, to})
@@ -66,6 +76,26 @@ func (t *Task) WorkHistory(loc *time.Location) WorkHistory {
 		}
 	}
 	return h
+}
+
+// Lead is the 걸린 기간: from the first time work started to the last
+// completion. ok is false until the task has both; a running task reports
+// the start with a zero end.
+func (h WorkHistory) Lead() (start, end time.Time, ok bool) {
+	if len(h.Sessions) == 0 {
+		return time.Time{}, time.Time{}, false
+	}
+	start = h.Sessions[0].Start
+	for i := len(h.Finishes) - 1; i >= 0; i-- {
+		if h.Finishes[i].Status == StatusDone {
+			end = h.Finishes[i].At
+			break
+		}
+	}
+	if !end.IsZero() && end.Before(start) {
+		end = time.Time{}
+	}
+	return start, end, !end.IsZero()
 }
 
 // InDay leaves paused days blank and includes completion without a doing step.

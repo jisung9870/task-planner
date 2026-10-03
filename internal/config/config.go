@@ -48,6 +48,12 @@ type Config struct {
 	// left running overnight would otherwise record the whole night.
 	SessionCap domain.Duration `yaml:"session_cap,omitempty"`
 
+	// BackfillUnder is the recorded time below which completing a human task
+	// asks when the work really started. The vault showed 진행중 pressed just
+	// before 완료, so a short session usually means "the timer missed it", not
+	// "it took a minute". Zero never asks.
+	BackfillUnder domain.Duration `yaml:"backfill_under,omitempty"`
+
 	// Views are saved filter expressions the TUI binds to its view picker (v).
 	// They live in config rather than in a dotfile because they are part of how
 	// this vault is worked, and a vault is the thing people sync between
@@ -255,6 +261,7 @@ func Default(vault string) *Config {
 		DueSoonDays:    3,
 		DailyCapacity:  domain.Duration(6 * time.Hour),
 		SessionCap:     domain.Duration(8 * time.Hour),
+		BackfillUnder:  domain.Duration(10 * time.Minute),
 		// Seeds, not policy: they are the questions this tool was built to
 		// answer, and they are editable like any other config key.
 		Views: []View{
@@ -317,6 +324,9 @@ func Load(vault string) (*Config, error) {
 	}
 	if cfg.SessionCap < 0 {
 		cfg.SessionCap = 0
+	}
+	if cfg.BackfillUnder < 0 {
+		cfg.BackfillUnder = 0
 	}
 	if cfg.DailyCapacity < 0 {
 		cfg.DailyCapacity = 0

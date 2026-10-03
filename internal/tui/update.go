@@ -456,7 +456,7 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.startPrompt(modeSearch, "필터: ", m.search)
 		return m, textinput.Blink
 	case " ":
-		m.applyNext()
+		return m, m.applyNext()
 	case "s":
 		if p := m.currentProj(); p != nil {
 			m.cycleProject(p)
@@ -464,7 +464,7 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.applyStatus(domain.StatusDoing, nil)
 	case "d":
-		m.applyStatus(domain.StatusDone, nil)
+		return m, m.complete()
 	case "x":
 		m.applyStatus(domain.StatusCancelled, nil)
 	case "u":
@@ -748,6 +748,8 @@ func (m *Model) updatePrompt(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.applyStatus(domain.StatusBlocked, &domain.BlockInfo{Reason: value})
 		case modeSaveView:
 			m.saveView(value)
+		case modeSince:
+			return m, m.completeSince(value)
 		}
 		return m, nil
 	}
@@ -1000,16 +1002,66 @@ func splitTags(s string) []string {
 	return out
 }
 
+// sincePrompt asks once and accepts an empty answer: completion must stay one
+// keystroke away (사용 맥락 2번, 3초), so skipping records what the timer saw.
+const sincePrompt = "언제 시작했나요? "
+
+// complete marks the targets done. A single human task the timer barely saw
+// first asks when the work really started; a bulk completion never asks - one
+// start time cannot be true of five tasks.
+func (m *Model) complete() tea.Cmd {
+	ts := m.targets()
+	if len(ts) == 1 && m.svc.NeedsBackfill(ts[0]) {
+		m.sinceFor = ts[0].ID
+		m.startPrompt(modeSince, sincePrompt, "")
+		return textinput.Blink
+	}
+	m.applyStatus(domain.StatusDone, nil)
+	return nil
+}
+
+// completeSince finishes the prompt. An unreadable time reopens it with the
+// text kept, since the task is still waiting to be completed.
+func (m *Model) completeSince(value string) tea.Cmd {
+	t, err := m.svc.Resolve(m.sinceFor)
+	if err != nil {
+		m.setErr(err)
+		return nil
+	}
+	var since *time.Time
+	if value != "" {
+		at, err := m.svc.ParseSince(value)
+		if err != nil {
+			m.startPrompt(modeSince, sincePrompt, value)
+			m.setErr(err)
+			return textinput.Blink
+		}
+		since = &at
+	}
+	label := domain.StatusDone.Label()
+	if since != nil {
+		label += " (착수 " + since.Format("01-02 15:04") + ")"
+	}
+	m.mutate(label, []*domain.Task{t}, func(t *domain.Task) (*service.Result, error) {
+		return m.svc.DoneSince(t.ID, since)
+	})
+	return nil
+}
+
 // applyNext cycles each target through its own next status; a bulk cycle over
 // tasks in different states is still one step per task.
-func (m *Model) applyNext() {
+func (m *Model) applyNext() tea.Cmd {
 	ts := m.targets()
 	if len(ts) == 0 {
-		return
+		return nil
+	}
+	if len(ts) == 1 && domain.NextStatus(ts[0].Status) == domain.StatusDone {
+		return m.complete()
 	}
 	m.mutate(m.bulkLabel(ts, "상태 변경"), ts, func(t *domain.Task) (*service.Result, error) {
 		return m.svc.SetStatus(t.ID, domain.NextStatus(t.Status), nil)
 	})
+	return nil
 }
 
 // applyStatus moves every target to one status.

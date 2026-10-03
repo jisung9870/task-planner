@@ -54,6 +54,7 @@ type statusArgs struct {
 	Status    string   `json:"status" jsonschema:"todo|doing|blocked|done|cancelled. doing 은 타이머 시작, done 은 반복이면 다음 회차 생성과 후행 보류 해제"`
 	Reason    string   `json:"reason,omitempty" jsonschema:"보류(blocked) 사유 — 누구를 언제까지 기다리는지 한 줄. blocked 는 reason 또는 blocked_by 없이는 거부됨"`
 	BlockedBy []string `json:"blocked_by,omitempty" jsonschema:"선행 태스크 참조 목록. 선행이 전부 끝나면 자동으로 대기중 복귀"`
+	Since     string   `json:"since,omitempty" jsonschema:"done 에만: 실제 착수 시각 (10:30, 2h, 어제 14:00, 2026-10-01 14:00). 타이머를 켜지 않았거나 늦게 켠 일의 시작을 남긴다"`
 }
 
 type editArgs struct {
@@ -212,6 +213,15 @@ func (s *Server) registerWriteTools() {
 				return nil, mutateOut{}, err
 			}
 			res, err = s.svc.Block(in.Ref, in.Reason, in.BlockedBy)
+		} else if in.Since != "" {
+			if st != domain.StatusDone {
+				return nil, mutateOut{}, fmt.Errorf("since 는 status=done 에만 쓸 수 있음")
+			}
+			since, perr := s.svc.ParseSince(in.Since)
+			if perr != nil {
+				return nil, mutateOut{}, perr
+			}
+			res, err = s.svc.DoneSince(in.Ref, &since)
 		} else {
 			res, err = s.svc.SetStatus(in.Ref, st, nil)
 		}

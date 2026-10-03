@@ -62,13 +62,14 @@ const (
 	modeForm
 	modeConfirm
 	modeHelp
+	modeSince
 )
 
 // prompting reports whether the mode is a one-line text prompt.
 func (md mode) prompting() bool {
 	switch md {
 	case modeCapture, modeBlock, modeSearch, modeSpan, modeProject, modeNewProject,
-		modeProjectDue, modeNote, modeSaveView:
+		modeProjectDue, modeNote, modeSaveView, modeSince:
 		return true
 	}
 	return false
@@ -211,6 +212,8 @@ type Model struct {
 	history   map[mode][]string
 	histPos   int
 	histDraft string
+	// sinceFor is the task the 착수 시각 prompt will complete.
+	sinceFor string
 
 	// hits are the clickable regions recorded by the last render.
 	hits []hit

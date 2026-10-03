@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -255,12 +256,16 @@ func newStatusCmds() []*cobra.Command {
 	cmds := make([]*cobra.Command, 0, len(simple)+1)
 	for _, sc := range simple {
 		to := sc.to
-		cmds = append(cmds, &cobra.Command{
+		var since string
+		c := &cobra.Command{
 			Use:   sc.use,
 			Short: sc.short,
 			Args:  cobra.ExactArgs(1),
 			RunE: func(cmd *cobra.Command, args []string) error {
 				return withService(func(svc *service.Service) error {
+					if to == domain.StatusDone {
+						return runDone(cmd, svc, args[0], since)
+					}
 					res, err := svc.SetStatus(args[0], to, nil)
 					if err != nil {
 						return err
@@ -269,7 +274,11 @@ func newStatusCmds() []*cobra.Command {
 					return nil
 				})
 			},
-		})
+		}
+		if to == domain.StatusDone {
+			c.Flags().StringVar(&since, "since", "", "실제 착수 시각 (10:30, 2h, 어제 14:00, 2026-10-01 14:00)")
+		}
+		cmds = append(cmds, c)
 	}
 
 	skip := &cobra.Command{
@@ -519,4 +528,36 @@ func printResult(cmd *cobra.Command, res *service.Result) {
 		}
 		fmt.Fprintln(cmd.ErrOrStderr(), "  주의: "+w)
 	}
+}
+
+// runDone completes a task, backfilling its start when --since is given. With
+// no --since on a task the timer barely saw, it says how to record the start:
+// the CLI cannot ask, and a silent 2-minute record is the habit to break.
+func runDone(cmd *cobra.Command, svc *service.Service, ref, since string) error {
+	var at *time.Time
+	if since != "" {
+		t, err := svc.ParseSince(since)
+		if err != nil {
+			return err
+		}
+		at = &t
+	}
+	hint := false
+	if at == nil {
+		t, err := svc.Resolve(ref)
+		if err != nil {
+			return err
+		}
+		hint = svc.NeedsBackfill(t)
+	}
+	res, err := svc.DoneSince(ref, at)
+	if err != nil {
+		return err
+	}
+	printResult(cmd, res)
+	if hint {
+		fmt.Fprintf(cmd.ErrOrStderr(), "착수 기록이 %s 미만입니다 — 다음에는 tp done <태스크> --since 10:30 으로 실제 시작 시각을 남길 수 있습니다\n",
+			svc.Cfg.BackfillUnder)
+	}
+	return nil
 }

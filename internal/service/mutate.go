@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"task-planner/internal/domain"
 	"task-planner/internal/recur"
@@ -167,15 +168,38 @@ type Result struct {
 
 // SetStatus moves a task between states, writing the change and its log line.
 func (s *Service) SetStatus(ref string, to domain.Status, block *domain.BlockInfo) (*Result, error) {
+	return s.transition(ref, to, &domain.TransitionOpts{Block: block})
+}
+
+// DoneSince completes a task whose work began at since - typed in afterwards
+// because the timer missed the start. A nil since is a plain Done.
+func (s *Service) DoneSince(ref string, since *time.Time) (*Result, error) {
+	return s.transition(ref, domain.StatusDone, &domain.TransitionOpts{Since: since})
+}
+
+// ParseSince resolves "when did it start" (10:30, 2h, 어제 14:00) against now.
+func (s *Service) ParseSince(expr string) (time.Time, error) {
+	return domain.ParseSince(expr, s.now())
+}
+
+// NeedsBackfill reports whether completing t now should ask when the work
+// really started: a human task with less on the clock than backfill_under.
+// Agent work is exempt - it registers with start and finishes in minutes.
+func (s *Service) NeedsBackfill(t *domain.Task) bool {
+	if s.Cfg.BackfillUnder <= 0 || !t.IsOpen() || t.Executor.Effective() != domain.ExecutorHuman {
+		return false
+	}
+	return t.ElapsedActual(s.now(), s.Cfg.SessionCap) < s.Cfg.BackfillUnder
+}
+
+func (s *Service) transition(ref string, to domain.Status, opts *domain.TransitionOpts) (*Result, error) {
 	t, err := s.Load(ref)
 	if err != nil {
 		return nil, err
 	}
 	from := t.Status
-	if err := t.Transition(to, s.now(), &domain.TransitionOpts{
-		Block:      block,
-		SessionCap: s.Cfg.SessionCap,
-	}); err != nil {
+	opts.SessionCap = s.Cfg.SessionCap
+	if err := t.Transition(to, s.now(), opts); err != nil {
 		return nil, err
 	}
 	if err := s.save(t); err != nil {

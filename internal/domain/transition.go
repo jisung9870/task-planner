@@ -18,6 +18,10 @@ type TransitionOpts struct {
 	// would otherwise record 14 hours and poison the estimate-vs-actual data
 	// that makes tracking worth doing at all. Zero disables the cap.
 	SessionCap Duration
+	// Since is when the work really began, typed in at completion because the
+	// timer was never started or started a moment ago. It replaces the start
+	// of the session being closed. Only 완료 takes it.
+	Since *time.Time
 }
 
 // Transition applies a status change together with every field the change
@@ -36,6 +40,11 @@ func (t *Task) Transition(to Status, at time.Time, opts *TransitionOpts) error {
 		return nil
 	}
 	today := DateOf(at)
+	if opts.Since != nil {
+		if err := t.checkSince(to, *opts.Since, at); err != nil {
+			return err
+		}
+	}
 
 	if to == StatusBlocked {
 		if block != nil {
@@ -74,7 +83,15 @@ func (t *Task) Transition(to Status, at time.Time, opts *TransitionOpts) error {
 		t.ClaimedBy = ""
 	}
 
-	capped := t.applyTimer(from, to, at, opts.SessionCap)
+	timerFrom := from
+	if opts.Since != nil {
+		// The work ran from Since whatever the timer said: close it as one
+		// session from there.
+		since := *opts.Since
+		t.StartedAt = &since
+		timerFrom = StatusDoing
+	}
+	capped := t.applyTimer(timerFrom, to, at, opts.SessionCap)
 
 	t.Status = to
 	t.Updated = today
@@ -82,6 +99,9 @@ func (t *Task) Transition(to Status, at time.Time, opts *TransitionOpts) error {
 	detail := ""
 	if to == StatusBlocked && t.BlockedReason != "" {
 		detail = " (" + t.BlockedReason + ")"
+	}
+	if opts.Since != nil {
+		detail += " (" + sinceMark + opts.Since.Format(sinceLayout) + ")"
 	}
 	if elapsed := t.lastSession; elapsed > 0 {
 		detail += fmt.Sprintf(" [+%s]", elapsed)
@@ -110,6 +130,26 @@ func (t *Task) applyTimer(from, to Status, at time.Time, cap Duration) bool {
 		return capped
 	}
 	return false
+}
+
+// checkSince refuses a backfilled start that would invent work: one in the
+// future, one on anything but completion, or one reaching back into a session
+// the log already counted.
+func (t *Task) checkSince(to Status, since, at time.Time) error {
+	if to != StatusDone {
+		return fmt.Errorf("착수 시각은 완료할 때만 지정할 수 있음")
+	}
+	if since.After(at) {
+		return fmt.Errorf("착수 시각(%s)이 완료 시각보다 나중임", since.Format(sinceLayout))
+	}
+	h := t.WorkHistory(at.Location())
+	for _, s := range h.Sessions {
+		if !s.End.IsZero() && since.Before(s.End) {
+			return fmt.Errorf("착수 시각(%s)이 이미 기록된 진행 구간(%s~%s)과 겹침",
+				since.Format(sinceLayout), s.Start.Format(sinceLayout), s.End.Format("15:04"))
+		}
+	}
+	return nil
 }
 
 // BlockedDays reports how long a hold has been open, for the "왜 아직 보류지"

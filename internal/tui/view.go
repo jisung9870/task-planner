@@ -1252,6 +1252,8 @@ func (m *Model) promptHint() string {
 		return "입력하는 대로 걸러집니다  ·  ↑/↓ 이전 질의  ·  enter 확정  esc 취소"
 	case modeBlock:
 		return "enter 확인  esc 취소   사유 없이는 보류되지 않습니다"
+	case modeSince:
+		return "enter 완료  esc 취소   예: 10:30 · 2h (2시간 전) · 어제 14:00   비워두면 기록된 대로 완료"
 	}
 	return "enter 확인  esc 취소"
 }
