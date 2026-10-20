@@ -32,6 +32,15 @@ A task may name who should run it (`agent: claude|codex|auto`) and how heavy it 
 - Use the returned `model` for the work, for example as the subagent model. If it is empty, judge the tier yourself, record it with `task_edit` (`tier`), and note the reason.
 - If you stop without finishing, call `task_release`. Never force-release another run's claim unless the user confirms that run has ended.
 
+## Human tasks
+
+Tasks without `executor: agent` belong to the human. The agent may read them and keep their record accurate, but the human owns their plan.
+
+- Without asking: append a note with facts the agent verified (job or pipeline ID, query result) or the user reported. Say which one it is.
+- Status: set `done` or `blocked` only when the user says so or the agent verified it. For a user report, write "user report" in the note.
+- Ask first: changing `scheduled`, `priority`, `title`, or `project`, and changing scope (split, merge, narrow). Propose the change with its reason and apply it after the user agrees. A moved dependency is a reason to propose, not to apply.
+- When the user asks the agent to plan or break down work, that request approves creating those tasks. Report the created list with IDs.
+
 ## Choosing and raising the tier
 
 The same rules live in the task-planner design doc ("tier 를 고르는 기준과 올리는 규칙") and README; change all three together.
