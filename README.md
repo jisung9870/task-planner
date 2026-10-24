@@ -397,14 +397,29 @@ tp git sync -m "메시지"   # 즉시 커밋
 
 ### MCP 서버 모드
 
-Claude Code 같은 MCP 클라이언트가 vault 를 직접 읽고 조작하게 한다. stdio
+Claude Code·Codex 같은 MCP 클라이언트가 vault 를 직접 읽고 조작하게 한다. stdio
 transport 라서 **데몬이 없다**. 클라이언트가 `tp mcp` 를 자식 프로세스로 띄우고
 세션이 끝나면 함께 종료된다.
+
+Claude Code 등록:
 
 ```bash
 claude mcp add task-planner -- tp mcp             # 현재 프로젝트
 claude mcp add -s user task-planner -- tp mcp     # 모든 프로젝트
 ```
+
+Codex CLI 등록과 설정 확인:
+
+```bash
+codex mcp add task-planner -- tp mcp
+codex mcp get task-planner
+```
+
+Codex는 기본적으로 `~/.codex/config.toml`에 등록한다. CLI와 IDE 확장이 같은
+MCP 설정을 공유한다. 연결된 도구에서 `vault_info`를 호출해 기본 vault 경로를
+확인한다. 기본 vault는 `~/tasks`이며, 다른 경로를 쓰면 등록 시
+`--env TP_VAULT=/absolute/path/to/vault`를 `-- tp mcp` 앞에 추가한다.
+등록 방식은 [Codex 공식 MCP 문서](https://developers.openai.com/codex/mcp/)를 따른다.
 
 | 종류 | 도구 |
 |---|---|
